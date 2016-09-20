@@ -33,7 +33,7 @@ EXEC [dbo].[sp_health_check];
 
 USE [master]; -- Change this line if you have an database administartion specific database
 GO
-IF OBJECT_ID('[master].[dbo].[sp_health_check]') IS NOT NULL BEGIN DROP PROCEDURE [dbo].[sp_health_check]; END;
+IF OBJECT_ID('[dbo].[sp_health_check]') IS NOT NULL BEGIN DROP PROCEDURE [dbo].[sp_health_check]; END;
 GO
 CREATE PROCEDURE [dbo].[sp_health_check]
 AS
@@ -458,30 +458,30 @@ END;
 --===================================================== MIRRORING STATUS ========================================================--
 --===============================================================================================================================--
 
-	DECLARE @mirror_COUNT INT; SELECT @mirror_COUNT=COUNT(mirroring_guid) FROM sys.database_mirroring WHERE mirroring_guid IS NOT NULL;
-	DECLARE @mirrorCOUNTsynch INT; SELECT @mirrorCOUNTsynch=COUNT(mirroring_guid) FROM sys.database_mirroring WHERE mirroring_state=4;
+	DECLARE @mirror_COUNT INT; SELECT @mirror_COUNT=COUNT([mirroring_guid]) FROM [sys].[database_mirroring] WHERE  [mirroring_guid] IS NOT NULL;
+	DECLARE @mirrorCOUNTsynch INT; SELECT @mirrorCOUNTsynch=COUNT([mirroring_guid]) FROM [sys].[database_mirroring] WHERE [mirroring_state]=4;
 		
 	-- ### Check database mirroring status
 	IF (@mirror_COUNT>0) 
 	BEGIN 
 		IF (@mirror_COUNT = @mirrorCOUNTsynch) 
 			BEGIN 
-			PRINT 'All '+CONVERT(NVARCHAR(3),@mirror_COUNT)+' databases configured with mirroring are in synch status'; 
-	END;
+				PRINT 'All '+CONVERT(NVARCHAR(3),@mirror_COUNT)+' databases configured with mirroring are in synch status'; 
+			END;
 		ELSE 
 			BEGIN 
-			PRINT '[!] '+CONVERT(NVARCHAR(3),(@mirror_COUNT-@mirrorCOUNTsynch))+' databases configured with mirroring are NOT in synch status';
+				PRINT '[!] '+CONVERT(NVARCHAR(3),(@mirror_COUNT-@mirrorCOUNTsynch))+' databases configured with mirroring are NOT in synch status';
 			END; 
 	END;
 	
 	-- ### Has there been any page autorepair?
-	IF (CONVERT(INT,@@microsoftversion)>=171051460) --SQL2008R2SP1 or greater
-	BEGIN
-		DECLARE @mirroring_auto_page_repair INT; SELECT @mirroring_auto_page_repair=COUNT(file_id) FROM sys.dm_db_mirroring_auto_page_repair;
-		IF (@mirroring_auto_page_repair>0) 
-		BEGIN 
-			PRINT '[!] Mirroring auto page repair has taken place '+CONVERT(NVARCHAR(4),@mirroring_auto_page_repair)+' times';
-		END;
+	IF (CONVERT(INT ,@@microsoftversion)>=171051460) --SQL2008R2SP1 or greater
+	 BEGIN
+		  DECLARE	@mirroring_auto_page_repair INT; SELECT  @mirroring_auto_page_repair=COUNT([file_id]) FROM [sys].[dm_db_mirroring_auto_page_repair];
+		  IF (@mirroring_auto_page_repair>0)
+		  BEGIN 
+			   PRINT '[!] Mirroring auto page repair has taken place '+CONVERT(NVARCHAR(4) ,@mirroring_auto_page_repair)+' times';
+		  END;
 	END;
 
 --===============================================================================================================================--
