@@ -6,8 +6,13 @@
  \____/          /_/
 
 This script was put together by Salvador Lancaster, @sqlslancaster
+https://sqlhealthcheck.net/
 
-[!] sp_Health_Check is licensed free as long as all its contents are preserved, including this header. 
+--===============================================================================================================================--
+--======================================================= LICENSE ===============================================================--
+--===============================================================================================================================--
+
+sp_health_check is licensed free as long as all its contents are preserved, including this header. 
 The script and all its contents cannot be redistributed or sold either partially or as a whole without 
 the author's expressed written approval. 
 
@@ -15,19 +20,39 @@ Some scripts that are part of this compound of code were not created by the auth
 
 It is provided as is without guarantee, documentation or technical support and should be properly understood and tested
 before being deployed in a production enviroment.
+
+--===============================================================================================================================--
+--======================================================= HOW TO ================================================================--
+--===============================================================================================================================--
+
+When using for the first time, execute the uncommented code to create the stored procedure and then the line below for all subsequent executions:
+EXEC [dbo].[sp_health_check];
+
 */
 
 
-USE [master];
+USE [master]; -- Change this line if you have an database administartion specific database
 GO
-IF OBJECT_ID('[master].[dbo].[sp_Health_Check]') IS NOT NULL BEGIN DROP PROCEDURE [dbo].[sp_Health_Check]; END;
+IF OBJECT_ID('[master].[dbo].[sp_health_check]') IS NOT NULL BEGIN DROP PROCEDURE [dbo].[sp_health_check]; END;
 GO
-CREATE PROCEDURE [dbo].[sp_Health_Check]
+CREATE PROCEDURE [dbo].[sp_health_check]
 AS
 
 SET NOCOUNT ON;
 
-	PRINT '——————————————————————————';
+IF (SELECT  [c].[value] FROM [sys].[configurations] [c] WHERE [c].[name]=N'xp_cmdshell')<>1
+BEGIN 
+	RAISERROR('[sp_health_check] requires [xp_cmdshell] to be enabled.',10,1);
+	REVERT;
+END;
+
+IF (IS_SRVROLEMEMBER ( 'sysadmin', SUSER_NAME() ))<>0
+BEGIN
+     RAISERROR('[sp_health_check] must execute under sysadmin priviledges to execute accordingly',10,1);
+	REVERT;
+END;
+
+	PRINT '--------------------------';
 
 	DECLARE @cmd NVARCHAR(MAX);
 
@@ -474,11 +499,6 @@ SET NOCOUNT ON;
 	END;
 
 
-	PRINT '——————————————————————————';
+	PRINT '--------------------------';
 
 GO
-
-SET STATISTICS IO, TIME ON;
-
--- ### Execute after deploy
-EXEC [master].[dbo].[sp_Health_Check];
