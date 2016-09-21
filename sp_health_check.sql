@@ -1,12 +1,15 @@
-/* ______                __       __                                  __
-  / ____ \ _____ ____ _ / /_____ / /____ _ ____   _____ ____ _ _____ / /_ ___   _____
- / / __ `// ___// __ `// // ___// // __ `// __ \ / ___// __ `// ___// __// _ \ / ___/
-/ / /_/ /(__  )/ /_/ // /(__  )/ // /_/ // / / // /__ / /_/ /(__  )/ /_ /  __// /
-\ \__,_//____/ \__, //_//____//_/ \__,_//_/ /_/ \___/ \__,_//____/ \__/ \___//_/
- \____/          /_/
+﻿/*
 
-This script was put together by Salvador Lancaster, @sqlslancaster
-https://sqlhealthcheck.net/
+███████╗██████╗    ██╗  ██╗███████╗ █████╗ ██╗  ████████╗██╗  ██╗         ██████╗██╗  ██╗███████╗ ██████╗██╗  ██╗
+██╔════╝██╔══██╗   ██║  ██║██╔════╝██╔══██╗██║  ╚══██╔══╝██║  ██║        ██╔════╝██║  ██║██╔════╝██╔════╝██║ ██╔╝
+███████╗██████╔╝   ███████║█████╗  ███████║██║     ██║   ███████║        ██║     ███████║█████╗  ██║     █████╔╝ 
+╚════██║██╔═══╝    ██╔══██║██╔══╝  ██╔══██║██║     ██║   ██╔══██║        ██║     ██╔══██║██╔══╝  ██║     ██╔═██╗ 
+███████║██║███████╗██║  ██║███████╗██║  ██║███████╗██║   ██║  ██║███████╗╚██████╗██║  ██║███████╗╚██████╗██║  ██╗
+╚══════╝╚═╝╚══════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝╚═╝   ╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝
+https://sqlhealthcheck.net
+                                                                                                                 
+This script was put together by Salvador Lancaster
+@sqlslancaster - http://twitter.com/slancaster
 
 --===============================================================================================================================--
 --======================================================= LICENSE ===============================================================--
@@ -17,6 +20,7 @@ The script and all its contents cannot be redistributed or sold either partially
 the author's expressed written approval. 
 
 Some scripts that are part of this compound of code were not created by the author and belong to their original creator or owner for all purposes.
+You can find more details on this at https://sqlhealthcheck.net/overview
 
 It is provided as is without guarantee, documentation or technical support and should be properly understood and tested
 before being deployed in a production enviroment.
@@ -25,8 +29,8 @@ before being deployed in a production enviroment.
 --======================================================= HOW TO ================================================================--
 --===============================================================================================================================--
 
-When using for the first time, execute the uncommented code to create the stored procedure and then the line below for all subsequent executions:
-EXEC [dbo].[sp_health_check];
+[!] When using for the first time, execute the uncommented code to create the stored procedure and then the line below for all subsequent executions:
+    EXEC [dbo].[sp_health_check];
 
 */
 
