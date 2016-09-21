@@ -8,7 +8,7 @@
 https://sqlhealthcheck.net
                                                                                                                  
 This script was put together by Salvador Lancaster
-@sqlslancaster - http://twitter.com/slancaster
+@sqlslancaster - http://twitter.com/sqlslancaster
 
 --===============================================================================================================================--
 --======================================================= LICENSE ===============================================================--
