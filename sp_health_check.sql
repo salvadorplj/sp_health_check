@@ -34,8 +34,7 @@ before being deployed in a production enviroment.
     EXEC [dbo].[sp_health_check];
 */
 
-
-USE [master]; -- [!] Change this line if you have a database-administration-specific database and you want to store it there
+USE [master]; -- [!] Change this line if you have a database-administration-specific database and you want to store this stored procedure in it
 GO
 IF OBJECT_ID('[dbo].[sp_health_check]') IS NOT NULL BEGIN DROP PROCEDURE [dbo].[sp_health_check]; END;
 GO
@@ -47,13 +46,13 @@ SET NOCOUNT ON;
 IF (SELECT  [c].[value] FROM [sys].[configurations] [c] WHERE [c].[name]=N'xp_cmdshell')<>1
 BEGIN 
 	RAISERROR('[sp_health_check] requires [xp_cmdshell] to be enabled',10,1);
-	REVERT;
+	RETURN;
 END;
 
-IF (IS_SRVROLEMEMBER ( 'sysadmin', SUSER_NAME() ))<>0
+IF (IS_SRVROLEMEMBER ( 'sysadmin', SUSER_NAME() ))<>1
 BEGIN
-     RAISERROR('[sp_health_check] must execute under sysadmin priviledges',10,1);
-	REVERT;
+    RAISERROR('[sp_health_check] must execute under sysadmin priviledges',10,1);
+	RETURN;
 END;
 
 	PRINT '--------------------------';
@@ -130,7 +129,7 @@ END;
 	END;
 	ELSE
 	BEGIN
-		-- Credit to http://sqlandme.com/2013/08/20/sql-service-get-sql-server-service-account-using-t-sql/ by Vishal@SqlAndMe.com
+		-- Credit for this block to http://sqlandme.com/2013/08/20/sql-service-get-sql-server-service-account-using-t-sql/ by Vishal@SqlAndMe.com
 		EXEC       [master].[sys].[xp_instance_regread]
 					  @rootkey      = N'HKEY_LOCAL_MACHINE',
 					  @key          = N'SYSTEM\CurrentControlSet\Services\MSSQLServer',
@@ -148,7 +147,7 @@ END;
 	PRINT 'The engine service has been up since '+CONVERT(NVARCHAR(19),@tempDBcreate,120)+', '+CONVERT(NVARCHAR(6),@hours)+' hours and '+CONVERT(NVARCHAR(3),@minutes)+' minutes ago as process ID '+CONVERT(NVARCHAR,SERVERPROPERTY('ProcessID'))+' under ['+@SrvAccDBEngine+']';
 
 	-- ### Is the agent service running?
-	IF EXISTS (SELECT 1 FROM [master].[sys].[sysprocesses] WHERE [program_name] LIKE '%SQLAgent%') 
+	IF EXISTS (SELECT 1 FROM [master].[sys].[sysprocesses] WHERE [program_name] LIKE 'SQLAgent%') 
 	BEGIN
 		PRINT 'The agent service has been running for the last '+CONVERT(NVARCHAR,DATEDIFF(hh,@sqlagentstart,GETDATE()))+' hours under ['+@SrvAccAgent+']';
 	END;
@@ -167,33 +166,36 @@ END;
 --======================================================= FILES STATUSES ========================================================--
 --===============================================================================================================================--
 
-	DECLARE @dbf INT; SELECT @dbf=COUNT([state_desc]) FROM [sys].[master_files];
-	DECLARE @dbfo INT; SELECT @dbfo=COUNT([state_desc]) FROM [sys].[master_files] WHERE [state_desc]='ONLINE';
 	DECLARE @dbs INT; SELECT @dbs=COUNT([state_desc]) FROM [sys].[databases];
 	DECLARE @dbso INT; SELECT @dbso=COUNT([state_desc]) FROM [sys].[databases] WHERE [state_desc]='ONLINE';
 	DECLARE @dbmu INT; SELECT @dbmu=COUNT([user_access_desc]) FROM [sys].[databases] WHERE [user_access_desc]='MULTI_USER';
+	DECLARE @dbf INT; SELECT @dbf=COUNT([state_desc]) FROM [sys].[master_files];
+	DECLARE @dbfo INT; SELECT @dbfo=COUNT([state_desc]) FROM [sys].[master_files] WHERE [state_desc]='ONLINE';
 
 	-- ### Check if all databases are in MULTI_USER and ONLINE status
 	IF (@dbs = @dbso) AND (@dbs = @dbmu)
 	BEGIN 
 		PRINT 'All '+CONVERT(NVARCHAR(3),@dbs)+' databases attached to the server are in MULTI_USER access and ONLINE status';
 	END;
-	IF (@dbs > @dbso) OR (@dbs > @dbmu) BEGIN IF (@dbs = @dbso) 
+	IF (@dbs > @dbso) OR (@dbs > @dbmu) 
 	BEGIN 
-		PRINT 'All '+CONVERT(NVARCHAR(3),@dbs)+' databases attached to the server are in ONLINE status';
-	END;
-	ELSE 
-	BEGIN
-		PRINT '[!] Only '+CONVERT(NVARCHAR(3),@dbso)+' databases are in online status out of '+CONVERT(NVARCHAR(5),@dbs)+' attached on the server';
-	END; 
-	IF (@dbs = @dbmu)
-	BEGIN 
-		PRINT 'All '+CONVERT(NVARCHAR(3),@dbs)+' databases attached to the server are in MULTI_USER access status';
-	END;
-	ELSE 
-	BEGIN 
-		PRINT '[!] Only '+CONVERT(NVARCHAR(3),@dbmu)+' databases are in multi_user access status out of '+CONVERT(NVARCHAR(5),@dbs)+' attached to the server';
-	END; 
+		IF (@dbs = @dbso) 
+		BEGIN 
+			PRINT 'All '+CONVERT(NVARCHAR(3),@dbs)+' databases attached to the server are in ONLINE status';
+		END;
+		ELSE IF (@dbs > @dbso)  
+		BEGIN
+			PRINT '[!] Only '+CONVERT(NVARCHAR(3),@dbso)+' databases are in online status out of '+CONVERT(NVARCHAR(5),@dbs)+' attached on the server';
+		END; 
+	
+		IF (@dbs = @dbmu)
+			BEGIN 
+				PRINT 'All '+CONVERT(NVARCHAR(3),@dbs)+' databases attached to the server are in MULTI_USER access status';
+			END;
+		ELSE IF (@dbs > @dbmu)
+		BEGIN 
+			PRINT '[!] Only '+CONVERT(NVARCHAR(3),@dbmu)+' databases are in multi_user access status out of '+CONVERT(NVARCHAR(5),@dbs)+' attached to the server';
+		END; 
 	END;
 	-- ### Check if all data and log files are online
 	IF (@dbf = @dbfo) 
@@ -202,7 +204,7 @@ END;
 	END;
 	ELSE
 	BEGIN
-		PRINT '[!] Only '+CONVERT(NVARCHAR(3),@dbfo)+' out of '+CONVERT(NVARCHAR(3),@dbf)+' of the log and data files used by the databases installed are in in online status';
+		PRINT '[!] Only '+CONVERT(NVARCHAR(3),@dbfo)+' out of '+CONVERT(NVARCHAR(3),@dbf)+' of the log and data files used by the databases attached are in online status';
 	END;
 
 
@@ -213,7 +215,7 @@ END;
 
         DECLARE @LogFilesTotalSize INT; SELECT @LogFilesTotalSize=SUM(([size]*8)/1024) FROM [sys].[master_files] WHERE [type_desc]='LOG' GROUP BY [type_desc];
         DECLARE @DataFilesTotalSize INT; SELECT @DataFilesTotalSize=SUM(([size]*8)/1024) FROM [sys].[master_files] WHERE [type_desc]='ROWS' GROUP BY [type_desc];
-        PRINT 'The log files use '+CONVERT(NVARCHAR(32),@LogFilesTotalSize)+' MB, and data files '+CONVERT(NVARCHAR(32),@DataFilesTotalSize)+' MB, for a total of '+CONVERT(NVARCHAR(32),@DataFilesTotalSize+@LogFilesTotalSize)+' MB';
+        PRINT 'The database log files use '+CONVERT(NVARCHAR(32),@LogFilesTotalSize)+' MB, and the data files use '+CONVERT(NVARCHAR(32),@DataFilesTotalSize)+' MB, for a total of '+CONVERT(NVARCHAR(32),@DataFilesTotalSize+@LogFilesTotalSize)+' MB';
 
 
 	PRINT ''; -- Print break
@@ -226,7 +228,7 @@ END;
 	DECLARE @cpu_name NVARCHAR(56); DECLARE @cpu_info TABLE ([name] NVARCHAR(MAX) NULL); INSERT INTO @cpu_info EXEC [sys].[xp_cmdshell] 'wmic cpu get name'; DELETE @cpu_info WHERE [name] IS NULL OR [name] LIKE '%name%'; SELECT TOP 1 @cpu_name=[name] FROM @cpu_info;
 	IF (CONVERT(INT,@@microsoftversion)>=171051460) --SQL2008R2SP1 or greater
 	BEGIN
-			-- Credit to http://basitaalishan.com/2014/01/22/get-sql-server-physical-cores-physical-and-virtual-cpus-and-processor-type-information-using-t-sql-script/ by Basit Farooq
+			-- Credit for this block to http://basitaalishan.com/2014/01/22/get-sql-server-physical-cores-physical-and-virtual-cpus-and-processor-type-information-using-t-sql-script/ by Basit Farooq
 			DECLARE @number_of_virtual_cpus NVARCHAR(4), @number_of_cores_per_cpu NVARCHAR(4), @number_of_physical_cpus NVARCHAR(4), @total_number_of_cores NVARCHAR(4), @cpu_category NVARCHAR(12);
 			DECLARE @xp_msver TABLE ([idx] [INT] NULL,[c_name] [NVARCHAR](100) NULL,[int_val] [FLOAT] NULL,[c_val] [NVARCHAR](128) NULL); 
 			INSERT INTO @xp_msver EXEC ('[master]..[xp_msver]'); 
@@ -352,7 +354,8 @@ END;
 	PRINT CONVERT(NVARCHAR(32),@Waits)+' waits initiated per second, the top wait type at this moment is "'+REPLACE(@WaitTypeCurrentMain,'  ','')+'" with '+CONVERT(NVARCHAR(32),@WaitTypeCurrentMainWaits);
 
 	DECLARE @WaitTypeAggregatedMain NVARCHAR(64), @WaitTypeAggregatedPercentage DECIMAL(5,2); 
-	/* Credit for this line to Paul Randal http://www.sqlskills.com/blogs/paul/wait-statistics-or-please-tell-me-where-it-hurts */ ;WITH [Waits] AS (SELECT [wait_type], [wait_time_ms] / 1000.0 AS [WaitS], ([wait_time_ms] - [signal_wait_time_ms]) / 1000.0 AS [ResourceS], [signal_wait_time_ms] / 1000.0 AS [SignalS], [waiting_tasks_count] AS [WaitCount],100.0 * [wait_time_ms] / SUM ([wait_time_ms]) OVER() AS [Percentage],ROW_NUMBER() OVER(ORDER BY [wait_time_ms] DESC) AS [RowNum] FROM [sys].[dm_os_wait_stats]     WHERE [wait_type] NOT IN (         N'BROKER_EVENTHANDLER',             N'BROKER_RECEIVE_WAITFOR',         N'BROKER_TASK_STOP',                N'BROKER_TO_FLUSH',         N'BROKER_TRANSMITTER',              N'CHECKPOINT_QUEUE',         N'CHKPT',                           N'CLR_AUTO_EVENT',         N'CLR_MANUAL_EVENT',                N'CLR_SEMAPHORE',         N'DBMIRROR_DBM_EVENT',              N'DBMIRROR_EVENTS_QUEUE',         N'DBMIRROR_WORKER_QUEUE',           N'DBMIRRORING_CMD',         N'DIRTY_PAGE_POLL',                 N'DISPATCHER_QUEUE_SEMAPHORE',         N'EXECSYNC',                        N'FSAGENT',         N'FT_IFTS_SCHEDULER_IDLE_WAIT',     N'FT_IFTSHC_MUTEX',         N'HADR_CLUSAPI_CALL',               N'HADR_FILESTREAM_IOMGR_IOCOMPLETION',         N'HADR_LOGCAPTURE_WAIT',            N'HADR_NOTIFICATION_DEQUEUE',         N'HADR_TIMER_TASK',                 N'HADR_WORK_QUEUE',         N'KSOURCE_WAKEUP',                  N'LAZYWRITER_SLEEP',         N'LOGMGR_QUEUE',                    N'ONDEMAND_TASK_QUEUE',         N'PWAIT_ALL_COMPONENTS_INITIALIZED',         N'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',         N'QDS_SHUTDOWN_QUEUE',         N'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',         N'REQUEST_FOR_DEADLOCK_SEARCH',     N'RESOURCE_QUEUE',         N'SERVER_IDLE_CHECK',               N'SLEEP_BPOOL_FLUSH',         N'SLEEP_DBSTARTUP',                 N'SLEEP_DCOMSTARTUP',         N'SLEEP_MASTERDBREADY',             N'SLEEP_MASTERMDREADY',         N'SLEEP_MASTERUPGRADED',            N'SLEEP_MSDBSTARTUP',         N'SLEEP_SYSTEMTASK',                N'SLEEP_TASK',         N'SLEEP_TEMPDBSTARTUP',             N'SNI_HTTP_ACCEPT',         N'SP_SERVER_DIAGNOSTICS_SLEEP',     N'SQLTRACE_BUFFER_FLUSH',         N'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',         N'SQLTRACE_WAIT_ENTRIES',           N'WAIT_FOR_RESULTS',         N'WAITFOR',                         N'WAITFOR_TASKSHUTDOWN',         N'WAIT_XTP_HOST_WAIT',              N'WAIT_XTP_OFFLINE_CKPT_NEW_LOG',         N'WAIT_XTP_CKPT_CLOSE',             N'XE_DISPATCHER_JOIN',         N'XE_DISPATCHER_WAIT',              N'XE_TIMER_EVENT')     AND [waiting_tasks_count] > 0  ) SELECT TOP 1     @WaitTypeAggregatedMain=MAX ([W1].[wait_type]),     @WaitTypeAggregatedPercentage=CAST (MAX ([W1].[Percentage]) AS DECIMAL (5,2)) FROM [Waits] AS [W1] INNER JOIN [Waits] AS [W2]     ON [W2].[RowNum] <= [W1].[RowNum] GROUP BY [W1].[RowNum] HAVING SUM ([W2].[Percentage]) - MAX ([W1].[Percentage]) < 95;
+	/* Credit for this block to Paul Randal http://www.sqlskills.com/blogs/paul/wait-statistics-or-please-tell-me-where-it-hurts */ 
+	;WITH [Waits] AS (SELECT [wait_type], [wait_time_ms] / 1000.0 AS [WaitS], ([wait_time_ms] - [signal_wait_time_ms]) / 1000.0 AS [ResourceS], [signal_wait_time_ms] / 1000.0 AS [SignalS], [waiting_tasks_count] AS [WaitCount],100.0 * [wait_time_ms] / SUM ([wait_time_ms]) OVER() AS [Percentage],ROW_NUMBER() OVER(ORDER BY [wait_time_ms] DESC) AS [RowNum] FROM [sys].[dm_os_wait_stats]     WHERE [wait_type] NOT IN (         N'BROKER_EVENTHANDLER',             N'BROKER_RECEIVE_WAITFOR',         N'BROKER_TASK_STOP',                N'BROKER_TO_FLUSH',         N'BROKER_TRANSMITTER',              N'CHECKPOINT_QUEUE',         N'CHKPT',                           N'CLR_AUTO_EVENT',         N'CLR_MANUAL_EVENT',                N'CLR_SEMAPHORE',         N'DBMIRROR_DBM_EVENT',              N'DBMIRROR_EVENTS_QUEUE',         N'DBMIRROR_WORKER_QUEUE',           N'DBMIRRORING_CMD',         N'DIRTY_PAGE_POLL',                 N'DISPATCHER_QUEUE_SEMAPHORE',         N'EXECSYNC',                        N'FSAGENT',         N'FT_IFTS_SCHEDULER_IDLE_WAIT',     N'FT_IFTSHC_MUTEX',         N'HADR_CLUSAPI_CALL',               N'HADR_FILESTREAM_IOMGR_IOCOMPLETION',         N'HADR_LOGCAPTURE_WAIT',            N'HADR_NOTIFICATION_DEQUEUE',         N'HADR_TIMER_TASK',                 N'HADR_WORK_QUEUE',         N'KSOURCE_WAKEUP',                  N'LAZYWRITER_SLEEP',         N'LOGMGR_QUEUE',                    N'ONDEMAND_TASK_QUEUE',         N'PWAIT_ALL_COMPONENTS_INITIALIZED',         N'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',         N'QDS_SHUTDOWN_QUEUE',         N'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',         N'REQUEST_FOR_DEADLOCK_SEARCH',     N'RESOURCE_QUEUE',         N'SERVER_IDLE_CHECK',               N'SLEEP_BPOOL_FLUSH',         N'SLEEP_DBSTARTUP',                 N'SLEEP_DCOMSTARTUP',         N'SLEEP_MASTERDBREADY',             N'SLEEP_MASTERMDREADY',         N'SLEEP_MASTERUPGRADED',            N'SLEEP_MSDBSTARTUP',         N'SLEEP_SYSTEMTASK',                N'SLEEP_TASK',         N'SLEEP_TEMPDBSTARTUP',             N'SNI_HTTP_ACCEPT',         N'SP_SERVER_DIAGNOSTICS_SLEEP',     N'SQLTRACE_BUFFER_FLUSH',         N'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',         N'SQLTRACE_WAIT_ENTRIES',           N'WAIT_FOR_RESULTS',         N'WAITFOR',                         N'WAITFOR_TASKSHUTDOWN',         N'WAIT_XTP_HOST_WAIT',              N'WAIT_XTP_OFFLINE_CKPT_NEW_LOG',         N'WAIT_XTP_CKPT_CLOSE',             N'XE_DISPATCHER_JOIN',         N'XE_DISPATCHER_WAIT',              N'XE_TIMER_EVENT')     AND [waiting_tasks_count] > 0  ) SELECT TOP 1     @WaitTypeAggregatedMain=MAX ([W1].[wait_type]),     @WaitTypeAggregatedPercentage=CAST (MAX ([W1].[Percentage]) AS DECIMAL (5,2)) FROM [Waits] AS [W1] INNER JOIN [Waits] AS [W2]     ON [W2].[RowNum] <= [W1].[RowNum] GROUP BY [W1].[RowNum] HAVING SUM ([W2].[Percentage]) - MAX ([W1].[Percentage]) < 95;
 	PRINT 'The aggregated top wait type since the cache was last cleared is "'+@WaitTypeAggregatedMain+'", having '+CONVERT(NVARCHAR(6),@WaitTypeAggregatedPercentage)+'% in total';
 
 	PRINT ''; --Break
@@ -441,7 +444,7 @@ END;
 	END;
 
 	-- ### Databases on the server without an integrity check on the last 7 days
-	/* Credit for this line to Ryan DeVries http://ryandevries.com/ */ 
+	/* Credit for this block to Ryan DeVries http://ryandevries.com/ */ 
 	DECLARE @DBsNoIntegrityChk INT; SET @DBsNoIntegrityChk=0; CREATE TABLE [#DBInfo] ([ParentObject] VARCHAR(255), [Object] VARCHAR(255), [Field] VARCHAR(255), [Value] VARCHAR(255)); CREATE TABLE [#Value] ([DatabaseName] VARCHAR(255), [LastDBCCCheckDB] DATETIME);
 	EXECUTE [sys].[sp_MSforeachdb] 'INSERT INTO #DBInfo EXECUTE (''DBCC DBINFO ( ''''?'''' ) WITH TABLERESULTS, NO_INFOMSGS''); INSERT INTO #Value (DatabaseName, LastDBCCCheckDB) (SELECT ''?'', [Value] FROM #DBInfo WHERE Field = ''dbi_dbccLastKnownGood''); TRUNCATE TABLE #DBInfo;';
 	DELETE FROM [#Value] WHERE DATEDIFF(dd,[LastDBCCCheckDB],GETDATE())>15; ;WITH [cte] AS (SELECT ROW_NUMBER() OVER (PARTITION BY [DatabaseName] ORDER BY [LastDBCCCheckDB] DESC) [RN] FROM [#Value]) DELETE FROM [cte] WHERE  [cte].[RN] > 1;
