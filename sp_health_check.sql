@@ -31,10 +31,10 @@ before being deployed in a production enviroment.
 [!] When using for the first time, execute the uncommented code to create the stored procedure, and then use the line below for all
     subsequent executions:
     
-    EXEC [dbo].[sp_health_check];
+    EXEC [dbo].[sp_health_check]; -- run against the database it was stored at, [master] unless it was changed
 */
 
-USE [master]; -- [!] Change this line if you have a database-administration-specific database and you want to store this stored procedure in it
+USE [master]; -- [!] Change if you have a DBA-specific database and you want to save this stored procedure in it
 GO
 IF OBJECT_ID('[dbo].[sp_health_check]') IS NOT NULL BEGIN DROP PROCEDURE [dbo].[sp_health_check]; END;
 GO
@@ -458,6 +458,19 @@ END;
 		PRINT 'All the databases on the server have had an intregrity check within the last 7 days';
 	END;
 
+	-- ### Check for existing suspect_pages within the last 15 days
+	/* Feedback from David Klee */
+	DECLARE @suspect_pages SMALLINT; SELECT @suspect_pages=ISNULL(COUNT(*),0) FROM [msdb].[dbo].[suspect_pages] WHERE [last_update_date]>=(GETDATE()-15);
+	IF @suspect_pages>0 
+	BEGIN
+		PRINT '[!] '+CONVERT(NVARCHAR(32),@suspect_pages)+' pages have been found marked as curruption-suspect on [msdb].[dbo].[suspect_pages] within the last 15 days';
+	END;
+	-- ### Check for unsent mail items within the last 7 days
+	DECLARE @unsent_mail SMALLINT; SELECT @unsent_mail=ISNULL(COUNT(*),0) FROM [msdb].[dbo].[sysmail_unsentitems] WHERE [sent_date]>=(GETDATE()-7);
+	IF @unsent_mail>0 
+	BEGIN
+		PRINT '[!] '+CONVERT(NVARCHAR(32),@unsent_mail)+' unsent queued database emails have been found within the last 7 days';
+	END;
 
 --===============================================================================================================================--
 --===================================================== MIRRORING STATUS ========================================================--
