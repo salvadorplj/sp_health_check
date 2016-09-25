@@ -246,6 +246,9 @@ END;
 	DECLARE @Parallelism_MAXDOP INT, @Parallelism_CostThreshold INT; SELECT @Parallelism_MAXDOP=CONVERT(INT,[value]) FROM [sys].[configurations] WHERE [name]='max degree of parallelism'; SELECT @Parallelism_CostThreshold=CONVERT(INT,[value]) FROM [sys].[configurations] WHERE [name]='cost threshold for parallelism';	
 	PRINT N'The maximum degree of parallelism is set as '+CONVERT(NVARCHAR(8),@Parallelism_MAXDOP)+' with a cost threshold of '+CONVERT(NVARCHAR(8),@Parallelism_CostThreshold);
 
+	-- ### perfmon counters count
+	DECLARE @os_performance_counters INT; SELECT @os_performance_counters=COUNT(*) FROM [sys].[dm_os_performance_counters];
+
 	-- ### Memory data
 	DECLARE @TotalServerMemory INT; SELECT @TotalServerMemory=[cntr_value]/1024 FROM [sys].[dm_os_performance_counters] WHERE	[object_name] IN ('SQLServer:Memory Manager')	AND [counter_name] IN ('Total Server Memory (KB)');
 	DECLARE @TargetServerMemory INT; SELECT @TargetServerMemory=[cntr_value]/1024 FROM [sys].[dm_os_performance_counters] WHERE [object_name] IN ('SQLServer:Memory Manager') AND [counter_name] IN ('Target Server Memory (KB)');
@@ -255,27 +258,40 @@ END;
 	IF (CONVERT(INT,@@microsoftversion)>=171051460) --SQL2008R2SP1 or greater
 	BEGIN
 		DECLARE @memorymbavail INT, @memorypercentavail DECIMAL(5,2); SELECT @os_memory= [total_physical_memory_kb]/1024, @memorymbavail=([available_physical_memory_kb]/1024), @memorypercentavail=(CONVERT(DECIMAL(5,2),((CONVERT(DECIMAL(30,2),[available_physical_memory_kb])/CONVERT(DECIMAL(30,2),[total_physical_memory_kb]))*100))) FROM [sys].[dm_os_sys_memory];
-		PRINT CONVERT(NVARCHAR(20),@os_memory)+' MB of RAM with '+CONVERT(NVARCHAR(32),@memorymbavail)+' available ('+CONVERT(NVARCHAR(5),@memorypercentavail)+'%), '+CONVERT(NVARCHAR(32),@TotalServerMemory)+' currently assigned for SQL which is targeting '+CONVERT(NVARCHAR(32),@TargetServerMemory)+' and maxed at '+CONVERT(NVARCHAR(20),@max_buff_mem);
+		IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(20),@os_memory)+' MB of RAM with '+CONVERT(NVARCHAR(32),@memorymbavail)+' available ('+CONVERT(NVARCHAR(5),@memorypercentavail)+'%), '+CONVERT(NVARCHAR(32),@TotalServerMemory)+' currently assigned for SQL which is targeting '+CONVERT(NVARCHAR(32),@TargetServerMemory)+' and maxed at '+CONVERT(NVARCHAR(20),@max_buff_mem); END;
 	END;
 	ELSE
 	BEGIN
 		SET @cmd = N'SELECT @os_memory=(physical_memory_in_bytes/1024)/1024 FROM [master].[sys].[dm_os_sys_info];';
 		EXEC [master].[sys].[sp_executesql] @cmd, N'@os_memory NVARCHAR(8) out', @os_memory OUTPUT;
-		PRINT CONVERT(NVARCHAR(20),@os_memory)+' MB of memory with '+CONVERT(NVARCHAR(32),@TotalServerMemory)+' currently assigned for SQL which is targeting '+CONVERT(NVARCHAR(32),@TargetServerMemory)+' and maxed at '+CONVERT(NVARCHAR(20),@max_buff_mem);
+		IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(20),@os_memory)+' MB of memory with '+CONVERT(NVARCHAR(32),@TotalServerMemory)+' currently assigned for SQL which is targeting '+CONVERT(NVARCHAR(32),@TargetServerMemory)+' and maxed at '+CONVERT(NVARCHAR(20),@max_buff_mem); END;
 	END;
 	
 	DECLARE @BufferCHR DECIMAL(10,2); SET @BufferCHR=((SELECT CONVERT(DECIMAL(16,2),[cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name] ='SQLServer:Buffer Manager'	AND [counter_name]='Buffer cache hit ratio') / (SELECT CONVERT(DECIMAL(16,2),[cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name] ='SQLServer:Buffer Manager' AND [counter_name]='Buffer cache hit ratio base'))*100;
 	DECLARE @PLE BIGINT; SELECT @PLE=[cntr_value] FROM [sys].[dm_os_performance_counters] WHERE [object_name] LIKE '%Manager%' AND [counter_name]='Page life expectancy';
-	PRINT 'Cache Hit Ratio at '+CONVERT(NVARCHAR(6),@BufferCHR)+'%, Page Life Expectancy at '+CONVERT(NVARCHAR(15),@PLE)+' secs ('+CONVERT(NVARCHAR(15),@PLE/60)+' min)';
+	IF @os_performance_counters<>0 BEGIN PRINT 'Cache Hit Ratio at '+CONVERT(NVARCHAR(6),@BufferCHR)+'%, Page Life Expectancy at '+CONVERT(NVARCHAR(15),@PLE)+' secs ('+CONVERT(NVARCHAR(15),@PLE/60)+' min)'; END;
 
 	IF (CONVERT(INT,@@microsoftversion)>=171051460) --SQL2008R2SP1 or greater
 	BEGIN
 		DECLARE @MemoryPlanCache INT; SELECT @MemoryPlanCache=[allocations_kb]/1024 FROM [sys].[dm_os_memory_brokers] WHERE [memory_broker_type]='MEMORYBROKER_FOR_CACHE';
 		DECLARE @BufferDBPages INT; SELECT @BufferDBPages= ([cntr_value]*8)/1024 FROM [sys].[dm_os_performance_counters] WHERE [object_name] IN ('SQLServer:Buffer Manager') AND  [counter_name] = 'Database pages';
-		PRINT CONVERT(NVARCHAR(64),@BufferDBPages)+' MB of memory used as buffer for database pages ('+CONVERT(NVARCHAR(16),CONVERT(DECIMAL(4,2),(CONVERT(DECIMAL(16,4),CONVERT(DECIMAL(16,5),@BufferDBPages) / CONVERT(DECIMAL(16,5),@TotalServerMemory)))*100))+'%), '+CONVERT(NVARCHAR(64),@MemoryPlanCache)+' MB for plan cache ('+CONVERT(NVARCHAR(16),CONVERT(DECIMAL(4,2),(CONVERT(DECIMAL(16,4),CONVERT(DECIMAL(16,5),@MemoryPlanCache) / CONVERT(DECIMAL(16,5),@TotalServerMemory)))*100))+'%)';
+		IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(64),@BufferDBPages)+' MB of memory used as buffer for database pages ('+CONVERT(NVARCHAR(16),CONVERT(DECIMAL(4,2),(CONVERT(DECIMAL(16,4),CONVERT(DECIMAL(16,5),@BufferDBPages) / CONVERT(DECIMAL(16,5),@TotalServerMemory)))*100))+'%), '+CONVERT(NVARCHAR(64),@MemoryPlanCache)+' MB for plan cache ('+CONVERT(NVARCHAR(16),CONVERT(DECIMAL(4,2),(CONVERT(DECIMAL(16,4),CONVERT(DECIMAL(16,5),@MemoryPlanCache) / CONVERT(DECIMAL(16,5),@TotalServerMemory)))*100))+'%)'; END;
 	END;
 	
 	PRINT ''; -- Print break
+
+	-- ### Check if perfmon counters are missing
+	IF @os_performance_counters=0
+	BEGIN
+		PRINT '[!] The SQL server performance counters are missing on the server';
+	END;
+
+	-- ### Configured vs running values
+	DECLARE @value_valueinuse INT; SELECT @value_valueinuse=SUM(CASE WHEN [value]<>[value_in_use] THEN 1 ELSE 0 END) FROM [sys].[configurations];
+	IF @value_valueinuse>0
+	BEGIN
+		PRINT '[!] Some server wide configuration options have been set but not applied and will take effect on the next restart';
+	END;
 
 
 --===============================================================================================================================--
@@ -289,12 +305,12 @@ END;
 	DECLARE @ConnectionsMemory INT; SELECT @ConnectionsMemory= [cntr_value] FROM [sys].[dm_os_performance_counters] WHERE	[object_name] IN ('SQLServer:Memory Manager') AND [counter_name] IN ('Connection Memory (KB)');
 	IF @TransactionsBlocked>0
 	BEGIN
-		PRINT '[!] '+CONVERT(NVARCHAR(8),@connections)+' user connections using '+CONVERT(NVARCHAR(16),@ConnectionsMemory/1024)+' MB of memory, '+CONVERT(NVARCHAR(16),@Transactions)+' transactions executing and '+CONVERT(NVARCHAR(8),@TransactionsBlocked)+' blocked';
+		IF @os_performance_counters<>0 BEGIN PRINT '[!] '+CONVERT(NVARCHAR(8),@connections)+' user connections using '+CONVERT(NVARCHAR(16),@ConnectionsMemory/1024)+' MB of memory, '+CONVERT(NVARCHAR(16),@Transactions)+' transactions executing and '+CONVERT(NVARCHAR(8),@TransactionsBlocked)+' blocked'; END;
 	END;
 
 	IF @TransactionsBlocked=0
 	BEGIN
-		PRINT CONVERT(NVARCHAR(8),@connections)+' user connections using '+CONVERT(NVARCHAR(16),@ConnectionsMemory/1024)+' MB of memory, '+CONVERT(NVARCHAR(16),@Transactions)+' transactions executing and '+CONVERT(NVARCHAR(8),@TransactionsBlocked)+' blocked';
+		IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(8),@connections)+' user connections using '+CONVERT(NVARCHAR(16),@ConnectionsMemory/1024)+' MB of memory, '+CONVERT(NVARCHAR(16),@Transactions)+' transactions executing and '+CONVERT(NVARCHAR(8),@TransactionsBlocked)+' blocked'; END;
 	END;
 
 	-- ### Sessions' isolation levels
@@ -326,7 +342,7 @@ END;
 
 	-- ### Deadlocks
 	DECLARE @Deadlocks INT; SELECT @Deadlocks=[cntr_value] FROM [sys].[dm_os_performance_counters] WHERE [counter_name]='Number of Deadlocks/sec' AND [instance_name]='_Total';
-	PRINT CONVERT(NVARCHAR(32),@Deadlocks)+' deadlocks have taken place since the last time the server started';
+	IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(32),@Deadlocks)+' deadlocks have taken place since the last time the server started'; END;
 
 	PRINT ''; --Break
 
@@ -337,21 +353,21 @@ END;
 	IF (CONVERT(INT,@@microsoftversion)>=171051460) --SQL2008R2SP1 or greater
 	BEGIN
 		DECLARE @MemoryGrantsReserve INT; SELECT @MemoryGrantsReserve=[allocations_kb]/1024 FROM [sys].[dm_os_memory_brokers] WHERE [memory_broker_type]='MEMORYBROKER_FOR_RESERVE';
-		PRINT CONVERT(NVARCHAR(64),@MemoryGrants)+' memory grants and '+CONVERT(NVARCHAR(64),@MemoryGrantsPending)+' pending with '+CONVERT(NVARCHAR(64),@MemoryGrantsReserve)+' MB of memory reserved for executions ('+CONVERT(NVARCHAR(16),CONVERT(DECIMAL(4,2),(CONVERT(DECIMAL(16,4),CONVERT(DECIMAL(16,5),@MemoryGrantsReserve) / CONVERT(DECIMAL(16,5),@TotalServerMemory)))*100))+'%)';
+		IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(64),@MemoryGrants)+' memory grants and '+CONVERT(NVARCHAR(64),@MemoryGrantsPending)+' pending with '+CONVERT(NVARCHAR(64),@MemoryGrantsReserve)+' MB of memory reserved for executions ('+CONVERT(NVARCHAR(16),CONVERT(DECIMAL(4,2),(CONVERT(DECIMAL(16,4),CONVERT(DECIMAL(16,5),@MemoryGrantsReserve) / CONVERT(DECIMAL(16,5),@TotalServerMemory)))*100))+'%)'; END;
 	END;
 	ELSE
 	BEGIN
-		PRINT CONVERT(NVARCHAR(64),@MemoryGrants)+' memory grants and '+CONVERT(NVARCHAR(64),@MemoryGrantsPending)+' pending';
+		IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(64),@MemoryGrants)+' memory grants and '+CONVERT(NVARCHAR(64),@MemoryGrantsPending)+' pending'; END;
 	END;
 
 	DECLARE @WaitforTheWorker INT; SELECT @WaitforTheWorker=[cntr_value] FROM [sys].[dm_os_performance_counters] WHERE [object_name]='SQLServer:Wait Statistics' AND [counter_name]='Wait for the worker' AND [instance_name]='Waits started per second';
 	DECLARE @IO_pend_requests INT; SELECT @IO_pend_requests=COUNT([io_pending]) FROM [sys].[dm_io_pending_io_requests] WHERE [io_type]='disk' AND [io_pending]=1;
-	PRINT CONVERT(NVARCHAR(64),@IO_pend_requests)+' pending "disk" I/O requests, '+CONVERT(NVARCHAR(64),@WaitforTheWorker)+' waits initiated on CPU';
+	IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(64),@IO_pend_requests)+' pending "disk" I/O requests, '+CONVERT(NVARCHAR(64),@WaitforTheWorker)+' waits initiated on CPU'; END;
 
 	-- ### Top wait	
 	DECLARE @WaitTypeCurrentMain NVARCHAR(64), @WaitTypeCurrentMainWaits INT; SELECT TOP 1 @WaitTypeCurrentMain=[wait_type], @WaitTypeCurrentMainWaits=COUNT([wait_type]) FROM [sys].[dm_os_waiting_tasks] WHERE [wait_type] NOT IN (N'REQUEST_FOR_DEADLOCK_SEARCH',N'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',N'SQLTRACE_BUFFER_FLUSH',N'LAZYWRITER_SLEEP',N'XE_TIMER_EVENT',N'XE_DISPATCHER_WAIT',N'FT_IFTS_SCHEDULER_IDLE_WAIT',N'LOGMGR_QUEUE',N'CHECKPOINT_QUEUE',N'BROKER_TO_FLUSH',N'BROKER_TASK_STOP',N'BROKER_EVENTHANDLER',N'SLEEP_TASK',N'WAITFOR',N'DBMIRROR_DBM_MUTEX',N'DBMIRROR_EVENTS_QUEUE',N'DBMIRRORING_CMD',N'DISPATCHER_QUEUE_SEMAPHORE',N'BROKER_RECEIVE_WAITFOR',N'CLR_AUTO_EVENT',N'DIRTY_PAGE_POLL',N'HADR_FILESTREAM_IOMGR_IOCOMPLETION',N'ONDEMAND_TASK_QUEUE',N'FT_IFTSHC_MUTEX',N'CLR_MANUAL_EVENT',N'SP_SERVER_DIAGNOSTICS_SLEEP',N'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',N'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP') GROUP BY [wait_type] ORDER BY COUNT([wait_type]) DESC;
 	DECLARE @Waits INT; SELECT @Waits=SUM([cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name]='SQLServer:Wait Statistics' AND [instance_name]='Waits started per second';
-	PRINT CONVERT(NVARCHAR(32),@Waits)+' waits initiated per second, the top wait type at this moment is "'+REPLACE(@WaitTypeCurrentMain,'  ','')+'" with '+CONVERT(NVARCHAR(32),@WaitTypeCurrentMainWaits);
+	IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(32),@Waits)+' waits initiated per second, the top wait type at this moment is "'+REPLACE(@WaitTypeCurrentMain,'  ','')+'" with '+CONVERT(NVARCHAR(32),@WaitTypeCurrentMainWaits); END;
 
 	DECLARE @WaitTypeAggregatedMain NVARCHAR(64), @WaitTypeAggregatedPercentage DECIMAL(5,2); 
 	/* Credit for this block to Paul Randal http://www.sqlskills.com/blogs/paul/wait-statistics-or-please-tell-me-where-it-hurts */ 
@@ -396,7 +412,7 @@ END;
 	DECLARE @LogsHighUse INT; SELECT @LogsHighUse=COUNT([cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [counter_name] ='Percent Log Used' AND [cntr_value]>80;
 	IF @LogsHighUse>0
 	BEGIN
-		PRINT '[!] '+CONVERT(NVARCHAR(8),@LogsHighUse)+' transaction logs are currently used above 80% of their total size';
+		IF @os_performance_counters<>0 BEGIN PRINT '[!] '+CONVERT(NVARCHAR(8),@LogsHighUse)+' transaction logs are currently used above 80% of their total size'; END;
 	END;
 	ELSE IF @LogsHighUse=0
 	BEGIN
@@ -431,7 +447,7 @@ END;
 	END;
 
 	-- ### Databases compatibility levels
-	DECLARE @compatibility_level SMALLINT; SELECT @compatibility_level=ISNULL(COUNT([compatibility_level]),0) FROM sys.databases WHERE LEFT([compatibility_level],2)<>SERVERPROPERTY('ProductMajorVersion')
+	DECLARE @compatibility_level SMALLINT; SELECT @compatibility_level=ISNULL(COUNT([compatibility_level]),0) FROM [sys].[databases] WHERE LEFT([compatibility_level],2)<>SERVERPROPERTY('ProductMajorVersion');
 	IF @compatibility_level>0 
 	BEGIN
 		PRINT '[!] '+CONVERT(NVARCHAR(32),@compatibility_level)+' databases are configured with a compatibility level different from the current engine''s version';
@@ -520,7 +536,7 @@ END;
 		SELECT @ReplIsPublished=SUM(CONVERT(INT,[is_published])), @ReplIsSubscribed=SUM(CONVERT(INT,[is_subscribed])), @ReplIsDistributor=SUM(CONVERT(INT,[is_distributor])) FROM [sys].[databases];
 		DECLARE @ReplPendingXacts INT; SELECT @ReplPendingXacts=(SELECT SUM([cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name]='SQLServer:Databases' AND [counter_name]='Repl. Pending Xacts' AND [instance_name] IN ('_Total')) - (SELECT SUM([cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name]='SQLServer:Databases' AND [counter_name]='Repl. Pending Xacts' AND [instance_name] IN ('master','model','tempdb','msdb'));
 
-		PRINT 'Replication is enabled with databases published '+CONVERT(NVARCHAR(64),@ReplIsPublished)+', subscribed '+CONVERT(NVARCHAR(64),@ReplIsSubscribed)+', distributor '+CONVERT(NVARCHAR(64),@ReplIsDistributor)+' having '+CONVERT(NVARCHAR(64),@ReplPendingXacts)+' transactions to be published';
+		IF @os_performance_counters<>0 BEGIN PRINT 'Replication is enabled with databases published '+CONVERT(NVARCHAR(64),@ReplIsPublished)+', subscribed '+CONVERT(NVARCHAR(64),@ReplIsSubscribed)+', distributor '+CONVERT(NVARCHAR(64),@ReplIsDistributor)+' having '+CONVERT(NVARCHAR(64),@ReplPendingXacts)+' transactions to be published'; END;
 	END;
 
 
