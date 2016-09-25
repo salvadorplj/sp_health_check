@@ -429,6 +429,13 @@ END;
 		+', bulk-logged '+CONVERT(NVARCHAR(8),@recovery_bulked)
 		+', full '+CONVERT(NVARCHAR(8),@recovery_full);
 	END;
+
+	-- ### Databases compatibility levels
+	DECLARE @compatibility_level SMALLINT; SELECT @compatibility_level=ISNULL(COUNT([compatibility_level]),0) FROM sys.databases WHERE LEFT([compatibility_level],2)<>SERVERPROPERTY('ProductMajorVersion')
+	IF @compatibility_level>0 
+	BEGIN
+		PRINT '[!] '+CONVERT(NVARCHAR(32),@compatibility_level)+' databases are configured with a compatibility level different from the current engine''s version';
+	END;
 	
 	-- ### Databases on the server without full backups on the last 7 days
 	DECLARE @DBsNoFullBkps7Days INT; 
