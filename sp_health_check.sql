@@ -55,7 +55,7 @@ BEGIN
 	RETURN;
 END;
 
-	PRINT '--------------------------';
+	PRINT '--------------------------------';
 
 	DECLARE @cmd NVARCHAR(MAX);
 
@@ -160,7 +160,15 @@ END;
 		END;
 		PRINT '[!] The SQLServerAgent service is NOT in running status';
 	END;
-	PRINT '';
+
+	-- ### Traces, Server Event Notifications, Extended Events and Server Triggers count
+	DECLARE @traces INT; SELECT @traces=COUNT([id]) FROM [sys].[traces] WHERE [stop_time] IS NULL;
+	DECLARE @server_event_notifications INT; SELECT @server_event_notifications=COUNT([name]) FROM [sys].[server_event_notifications];
+	DECLARE @xe_sessions INT; IF (CONVERT(INT,@@microsoftversion)>=171051460) /*SQL2008R2SP1 or greater*/ BEGIN	SELECT @xe_sessions=COUNT([name]) FROM [sys].[dm_xe_sessions]; END;
+	DECLARE @server_triggers INT; SELECT @server_triggers=COUNT([name]) FROM [sys].[server_triggers] WHERE [is_disabled]<>1
+	PRINT CONVERT(NVARCHAR(32),@traces)+' traces, '+CONVERT(NVARCHAR(32),@server_event_notifications)+' server event notifications, '+CONVERT(NVARCHAR(32),ISNULL(@xe_sessions,0))+' extended events sessions, and '+CONVERT(NVARCHAR(32),@server_triggers)+' server triggers currently running'
+
+	PRINT ''; -- Print break
 
 --===============================================================================================================================--
 --======================================================= FILES STATUSES ========================================================--
@@ -540,6 +548,6 @@ END;
 	END;
 
 
-	PRINT '--------------------------';
+	PRINT '--------------------------------';
 
 GO
