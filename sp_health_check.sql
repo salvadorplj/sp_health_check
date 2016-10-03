@@ -55,7 +55,7 @@ BEGIN
 	RETURN;
 END;
 
-	PRINT '--------------------------------';
+
 
 	DECLARE @cmd NVARCHAR(MAX);
 
@@ -165,8 +165,8 @@ END;
 	DECLARE @traces INT; SELECT @traces=COUNT([id]) FROM [sys].[traces] WHERE [stop_time] IS NULL;
 	DECLARE @server_event_notifications INT; SELECT @server_event_notifications=COUNT([name]) FROM [sys].[server_event_notifications];
 	DECLARE @xe_sessions INT; IF (CONVERT(INT,@@microsoftversion)>=171051460) /*SQL2008R2SP1 or greater*/ BEGIN	SELECT @xe_sessions=COUNT([name]) FROM [sys].[dm_xe_sessions]; END;
-	DECLARE @server_triggers INT; SELECT @server_triggers=COUNT([name]) FROM [sys].[server_triggers] WHERE [is_disabled]<>1
-	PRINT CONVERT(NVARCHAR(32),@traces)+' traces, '+CONVERT(NVARCHAR(32),@server_event_notifications)+' server event notifications, '+CONVERT(NVARCHAR(32),ISNULL(@xe_sessions,0))+' extended events sessions, and '+CONVERT(NVARCHAR(32),@server_triggers)+' server triggers currently running'
+	DECLARE @server_triggers INT; SELECT @server_triggers=COUNT([name]) FROM [sys].[server_triggers] WHERE [is_disabled]<>1;
+	PRINT CONVERT(NVARCHAR(32),@traces)+' traces, '+CONVERT(NVARCHAR(32),@server_event_notifications)+' server event notifications, '+CONVERT(NVARCHAR(32),ISNULL(@xe_sessions,0))+' extended events sessions, and '+CONVERT(NVARCHAR(32),@server_triggers)+' server triggers currently running';
 
 	PRINT ''; -- Print break
 
@@ -547,7 +547,6 @@ END;
 		IF @os_performance_counters<>0 BEGIN PRINT 'Replication is enabled with databases published '+CONVERT(NVARCHAR(64),@ReplIsPublished)+', subscribed '+CONVERT(NVARCHAR(64),@ReplIsSubscribed)+', distributor '+CONVERT(NVARCHAR(64),@ReplIsDistributor)+' having '+CONVERT(NVARCHAR(64),@ReplPendingXacts)+' transactions to be published'; END;
 	END;
 
-
-	PRINT '--------------------------------';
+	PRINT CHAR(10)+'/* [sp_health_check] by @sqlslancaster - find help at http://sqlhealthcheck.net/how-to */';
 
 GO
