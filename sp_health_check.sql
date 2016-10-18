@@ -57,6 +57,16 @@ END;
 
 	DECLARE @cmd NVARCHAR(MAX);
 
+
+--===============================================================================================================================--
+--================================================ Performance Baselines Values =================================================--
+--===============================================================================================================================--
+	
+	/*  PENDING ITEMS:
+	    - Measure latency
+	    - Capture waits
+	*/
+
 	-- ### dm_os_performance_counters
 	DECLARE @os_performance_counters INT; SELECT @os_performance_counters=COUNT(*) FROM [sys].[dm_os_performance_counters];
 
@@ -84,7 +94,7 @@ END;
 							,'Lock Requests/sec'				,'Log Bytes Flushed/sec'			,'Log Flushes/sec'
 							)
 			AND [instance_name]='_Total'
-		)
+		);
 
 		-- ### Mirroring values
 		DECLARE @mirror_COUNT INT; SELECT @mirror_COUNT=COUNT([mirroring_guid]) FROM [sys].[database_mirroring] WHERE  [mirroring_guid] IS NOT NULL;
@@ -128,29 +138,29 @@ END;
 							('Transactions/sec'				,'Write Transactions/sec'
 							,'Lock Requests/sec'			,'Log Bytes Flushed/sec'	,'Log Flushes/sec'
 							)
-							AND [instance_name]='_Total'
+							AND [perfmon_diff].[instance_name]='_Total'
 					)
 			) [perfmon_results_t]
 		)
 
-		SELECT   @BatchRequests_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Batch Requests/sec')
-				,@Transactions_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Transactions/sec')
-				,@WriteTransactions_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Write Transactions/sec')
-				,@Logins_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Logins/sec')
-				,@Logouts_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Logouts/sec')
-				,@Compilations_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='SQL Compilations/sec')
-				,@ReCompilations_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='SQL Re-Compilations/sec')
-				,@QueryOptimizations_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Query optimizations/sec')
-				,@BufferPageWrites_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Page writes/sec')
-				,@BufferPageReads_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Page reads/sec')
-				,@BufferLazyWrites_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Lazy writes/sec')
-				,@CheckpointPages_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Checkpoint pages/sec')
-				,@PageSplits_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Page Splits/sec')
+		SELECT   @BatchRequests_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Batch Requests/sec'),0)
+				,@Transactions_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Transactions/sec'),0)
+				,@WriteTransactions_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Write Transactions/sec'),0)
+				,@Logins_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Logins/sec'),0)
+				,@Logouts_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Logouts/sec'),0)
+				,@Compilations_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='SQL Compilations/sec'),0)
+				,@ReCompilations_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='SQL Re-Compilations/sec'),0)
+				,@QueryOptimizations_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Query optimizations/sec'),0)
+				,@BufferPageWrites_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Page writes/sec'),0)
+				,@BufferPageReads_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Page reads/sec'),0)
+				,@BufferLazyWrites_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Lazy writes/sec'),0)
+				,@CheckpointPages_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Checkpoint pages/sec'),0)
+				,@PageSplits_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Page Splits/sec'),0)
 		FROM [perfmon_results];
 
 		IF OBJECT_ID('tempdb..#perfmon_baseline') IS NOT NULL BEGIN DROP TABLE [#perfmon_baseline]; END;
 	
-	END
+	END;
 
 
 --===============================================================================================================================--
@@ -161,9 +171,12 @@ END;
 	DECLARE @ip NVARCHAR(56); SELECT @ip=[dec].[local_net_address] FROM [sys].[dm_exec_connections] AS [dec] WHERE [dec].[session_id] = @@SPID;
 	DECLARE @Domain NVARCHAR(128); EXEC [master].[sys].[xp_regread] 'HKEY_LOCAL_MACHINE', 'SYSTEM\\CurrentControlSet\\services\\Tcpip\\Parameters', N'Domain',@Domain OUTPUT; IF @Domain IS NULL SET @Domain='Not set';
 	DECLARE @iscluster INT; SELECT @iscluster=CONVERT(INT,SERVERPROPERTY('IsClustered')); 
-	DECLARE @tempDBcreate DATETIME; SELECT @tempDBcreate=[create_date] FROM [sys].[databases] WHERE [name] = 'tempdb';
-	DECLARE @tempDBcreatedt NVARCHAR(16); SET @tempDBcreatedt=CONVERT(NVARCHAR,(DATEPART(MONTH,@tempDBcreate)))+'/'+CONVERT(NVARCHAR,(DATEPART(DAY,@tempDBcreate)))+'/'+CONVERT(NVARCHAR,(DATEPART(YEAR,@tempDBcreate)))+' '+CONVERT(NVARCHAR,(DATEPART(MINUTE,@tempDBcreate)))+':'+CONVERT(NVARCHAR,(DATEPART(HOUR,@tempDBcreate)));
-	DECLARE @minutes DECIMAL, @hours INT; SET @minutes=DATEDIFF(MI,@tempDBcreate,GETDATE()); SET @hours=@minutes/60; SET @minutes=((@minutes/60)-@hours)*60;
+	DECLARE @tempDBcreate DATETIME; SELECT @tempDBcreate=[create_date] FROM [sys].[databases] WHERE [name]='tempdb';
+	DECLARE @engine_minutes DECIMAL, @engine_hours INT; SET @engine_minutes=DATEDIFF(MI,@tempDBcreate,GETDATE()); SET @engine_hours=@engine_minutes/60; SET @engine_minutes=((@engine_minutes/60)-@engine_hours)*60;
+
+	-- ### Print Server and OS info
+	DECLARE @OS NVARCHAR(128); SELECT @OS=RIGHT(@@VERSION, LEN(@@VERSION)- 0 -CHARINDEX (' Windows', @@VERSION)); SELECT @OS=LEFT(@OS, LEN(@OS)-0 -CHARINDEX(' (',@OS));
+	PRINT 'SQL Server '+CONVERT(NVARCHAR(128), SERVERPROPERTY('ProductVersion'))+' '+CONVERT(NVARCHAR(128),SERVERPROPERTY('Edition'))+' on '+REPLACE(@OS,CHAR(10),'');
 
 	-- ### Instance details
 	IF (CONVERT(INT,@@microsoftversion)>=171051460) --SQL2008R2SP1 or greater
@@ -175,7 +188,7 @@ END;
 			-- ### Is the service clustered?
 			IF (@iscluster>0) 
 			BEGIN 
-				PRINT 'The service "'+CONVERT(NVARCHAR,SERVERPROPERTY('ServerName'))+'" is clustered currently running on host "'+CONVERT(NVARCHAR,SERVERPROPERTY('ComputerNamePhysicalNetBIOS'))+'" since '+@tempDBcreatedt+', '+CONVERT(NVARCHAR(6),@hours)+' hours and '+CONVERT(NVARCHAR(3),@minutes)+' minutes ago as process ID '+CONVERT(NVARCHAR,SERVERPROPERTY('ProcessID'));
+				PRINT 'The service "'+CONVERT(NVARCHAR,SERVERPROPERTY('ServerName'))+'" is clustered currently running on host "'+CONVERT(NVARCHAR,SERVERPROPERTY('ComputerNamePhysicalNetBIOS'))+'" since '+CONVERT(NVARCHAR(16),@tempDBcreate,101)+' '+CONVERT(NVARCHAR(16),@tempDBcreate,108)+', '+CONVERT(NVARCHAR(6),@engine_hours)+' hours and '+CONVERT(NVARCHAR(3),@engine_minutes)+' minutes ago as process ID '+CONVERT(NVARCHAR,SERVERPROPERTY('ProcessID'));
 			END;
 			IF (@iscluster=0) 
 			BEGIN 
@@ -187,18 +200,13 @@ END;
 			-- ### Is the service clustered?
 			IF (@iscluster>0) 
 			BEGIN 
-				PRINT 'The service "'+CONVERT(NVARCHAR,SERVERPROPERTY('ServerName'))+'" is clustered currently running on host "'+CONVERT(NVARCHAR,SERVERPROPERTY('ComputerNamePhysicalNetBIOS'))+'" since '+@tempDBcreatedt+', '+CONVERT(NVARCHAR(6),@hours)+' hours and '+CONVERT(NVARCHAR(3),@minutes)+' minutes ago as process ID '+CONVERT(NVARCHAR,SERVERPROPERTY('ProcessID'));
+				PRINT 'The service "'+CONVERT(NVARCHAR,SERVERPROPERTY('ServerName'))+'" is clustered currently running on host "'+CONVERT(NVARCHAR,SERVERPROPERTY('ComputerNamePhysicalNetBIOS'))+'" since '+CONVERT(NVARCHAR(16),@tempDBcreate,101)+' '+CONVERT(NVARCHAR(16),@tempDBcreate,108)+', '+CONVERT(NVARCHAR(6),@engine_hours)+' hours and '+CONVERT(NVARCHAR(3),@engine_minutes)+' minutes ago as process ID '+CONVERT(NVARCHAR,SERVERPROPERTY('ProcessID'));
 			END;
 			IF (@iscluster=0) 
 			BEGIN 
 				PRINT 'The instance "'+CONVERT(NVARCHAR,SERVERPROPERTY('ServerName'))+'" is non-clustered, runs on the host "'+CONVERT(NVARCHAR,SERVERPROPERTY('ComputerNamePhysicalNetBIOS'))+'", ip "'+@ip+'", domain "'+@Domain+'"'; 
 			END;
 	END;
-
-
-	-- ### Print Server and OS info
-	DECLARE @OS NVARCHAR(128); SELECT @OS=RIGHT(@@VERSION, LEN(@@VERSION)- 0 -CHARINDEX (' Windows', @@VERSION)); SELECT @OS=LEFT(@OS, LEN(@OS)-0 -CHARINDEX(' (',@OS));
-	PRINT 'SQL Server '+CONVERT(NVARCHAR(128), SERVERPROPERTY('ProductVersion'))+' '+CONVERT(NVARCHAR(128),SERVERPROPERTY('Edition'))+' on '+REPLACE(@OS,CHAR(10),'');
 
 
 --===============================================================================================================================--
@@ -214,7 +222,6 @@ END;
 
 	-- ### Services variables
 	DECLARE @SrvAccDBEngine NVARCHAR(256), @SrvAccAgent NVARCHAR(128); 
-	DECLARE @sqlagentstart DATETIME; SELECT @sqlagentstart = [login_time] FROM [master].[sys].[sysprocesses] WHERE [program_name] LIKE 'SQLAgent - Generic Refresher%'; 
 
 	IF (CONVERT(INT,@@microsoftversion)>=171051460) --SQL2008R2SP1 or greater
 	BEGIN
@@ -238,12 +245,13 @@ END;
 	END;
 
 	-- ### Engine service running info
-	PRINT 'The engine has been up since '+CONVERT(NVARCHAR(19),@tempDBcreate,120)+', '+CONVERT(NVARCHAR(6),@hours)+' hours and '+CONVERT(NVARCHAR(3),@minutes)+' minutes ago as process ID '+CONVERT(NVARCHAR,SERVERPROPERTY('ProcessID'))+' under ['+@SrvAccDBEngine+']';
+	PRINT 'The engine has been up since '+CONVERT(NVARCHAR(16),@tempDBcreate,101)+' '+CONVERT(NVARCHAR(16),@tempDBcreate,108)+', '+CONVERT(NVARCHAR(6),@engine_hours)+' hours and '+CONVERT(NVARCHAR(3),@engine_minutes)+' minutes ago as process ID '+CONVERT(NVARCHAR,SERVERPROPERTY('ProcessID'))+' under ['+@SrvAccDBEngine+']';
 
 	-- ### Is the agent service running?
-	IF EXISTS (SELECT 1 FROM [master].[sys].[sysprocesses] WHERE [program_name] LIKE 'SQLAgent%') 
+	DECLARE @SQLAgentStart DATETIME; SELECT @SQLAgentStart=[login_time] FROM [sys].[dm_exec_sessions] WHERE [login_name]=@SrvAccAgent AND [program_name] LIKE 'SQLAgent - Generic Refresher%'; 
+	IF EXISTS (SELECT TOP 1 [login_name] FROM [sys].[dm_exec_sessions] WHERE [login_name]=@SrvAccAgent AND [program_name] LIKE 'SQLAgent%') 
 	BEGIN
-		PRINT 'The agent has been running for the last '+CONVERT(NVARCHAR,DATEDIFF(hh,@sqlagentstart,GETDATE()))+' hours under ['+@SrvAccAgent+']';
+		PRINT 'The agent was last started on '+CONVERT(NVARCHAR(16),@SQLAgentStart,101)+' '+CONVERT(NVARCHAR(16),@SQLAgentStart,108)+', '+CONVERT(NVARCHAR,DATEDIFF(hh,@SQLAgentStart,GETDATE()))+' hours ago, and runs under ['+@SrvAccAgent+']';
 	END;
 	ELSE
 	BEGIN
@@ -326,7 +334,11 @@ END;
 --===================================================== SERVER RESOURCES ========================================================--
 --===============================================================================================================================--
 
-	-- ### CPU data -- [!!! Add total CPU use]
+	/*  PENDING ITEMS:
+	    - Add CPU use
+	*/
+
+	-- ### CPU data
 	DECLARE @cpu_name NVARCHAR(56); DECLARE @cpu_info TABLE ([name] NVARCHAR(MAX) NULL); INSERT INTO @cpu_info EXEC [sys].[xp_cmdshell] 'wmic cpu get name'; DELETE @cpu_info WHERE [name] IS NULL OR [name] LIKE '%name%'; SELECT TOP 1 @cpu_name=[name] FROM @cpu_info;
 	IF (CONVERT(INT,@@microsoftversion)>=171051460) --SQL2008R2SP1 or greater
 	BEGIN
@@ -375,8 +387,8 @@ END;
 	
 	DECLARE @BufferCHR DECIMAL(10,2); SET @BufferCHR=((SELECT CONVERT(DECIMAL(16,2),[cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name] ='SQLServer:Buffer Manager'	AND [counter_name]='Buffer cache hit ratio') / (SELECT CONVERT(DECIMAL(16,2),[cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name] ='SQLServer:Buffer Manager' AND [counter_name]='Buffer cache hit ratio base'))*100;
 	DECLARE @PLE BIGINT; SELECT @PLE=[cntr_value] FROM [sys].[dm_os_performance_counters] WHERE [object_name] LIKE '%Manager%' AND [counter_name]='Page life expectancy';
-	IF @os_performance_counters<>0 BEGIN PRINT 'Cache hit ratio at '+CONVERT(NVARCHAR(6),@BufferCHR)+'%, page life expectancy at '+CONVERT(NVARCHAR(15),@PLE)+' secs ('+CONVERT(NVARCHAR(15),@PLE/60)+' min)'
-										 PRINT CONVERT(NVARCHAR(16),@BufferPageReads_sec)+' ('+CONVERT(NVARCHAR(8),((@BufferPageReads_sec*8)/1024))+' MB) page reads, '+CONVERT(NVARCHAR(16),@BufferPageWrites_sec)+' ('+CONVERT(NVARCHAR(8),((@BufferPageWrites_sec*8)/1024))+' MB) page writes, '+CONVERT(NVARCHAR(16),@PageSplits_sec)+' ('+CONVERT(NVARCHAR(16),( (@PageSplits_sec*8)/1024) )+' MB) page splits, '+CONVERT(NVARCHAR(16),@CheckpointPages_sec)+' ('+CONVERT(NVARCHAR(16),( (@CheckpointPages_sec*8)/1024) )+' MB) checkpoint pages, and '+CONVERT(NVARCHAR(16),@CheckpointPages_sec)+' lazy writes per second'
+	IF @os_performance_counters<>0 BEGIN PRINT 'Cache hit ratio at '+CONVERT(NVARCHAR(6),@BufferCHR)+'%, page life expectancy at '+CONVERT(NVARCHAR(15),@PLE)+' secs ('+CONVERT(NVARCHAR(15),@PLE/60)+' min)';
+										 PRINT CONVERT(NVARCHAR(16),@BufferPageReads_sec)+' ('+CONVERT(NVARCHAR(8),((@BufferPageReads_sec*8)/1024))+' MB) page reads, '+CONVERT(NVARCHAR(16),@BufferPageWrites_sec)+' ('+CONVERT(NVARCHAR(8),((@BufferPageWrites_sec*8)/1024))+' MB) page writes, '+CONVERT(NVARCHAR(16),@PageSplits_sec)+' ('+CONVERT(NVARCHAR(16),( (@PageSplits_sec*8)/1024) )+' MB) page splits, '+CONVERT(NVARCHAR(16),@CheckpointPages_sec)+' ('+CONVERT(NVARCHAR(16),( (@CheckpointPages_sec*8)/1024) )+' MB) checkpoint pages, and '+CONVERT(NVARCHAR(16),@CheckpointPages_sec)+' lazy writes per second';
 								   END;
 
 	PRINT ''; -- Print break
@@ -410,7 +422,7 @@ END;
 			PRINT CONVERT(NVARCHAR(8),@Logins_sec)+ ' logins and '+CONVERT(NVARCHAR(8),@Logouts_sec)+' logouts per second, '+ CONVERT(NVARCHAR(8),@connections)+' concurrent user connections using '+CONVERT(NVARCHAR(16),@ConnectionsMemory/1024)+' MB of memory';
 			PRINT CONVERT(NVARCHAR(16),@BatchRequests_sec)+' batch requests, '+CONVERT(NVARCHAR(16),@Transactions_sec)+' transactions, and '+CONVERT(NVARCHAR(16),@WriteTransactions_sec)+' writting transactions per second, '+CONVERT(NVARCHAR(16),@Transactions)+' currently executing and '+CONVERT(NVARCHAR(8),@TransactionsBlocked)+' blocked'; 
 			PRINT CONVERT(NVARCHAR(8),@Compilations_sec)+' compilations, '+CONVERT(NVARCHAR(8),@ReCompilations_sec)+' recompilations, '+CONVERT(NVARCHAR(8),@QueryOptimizations_sec)+' query optimizations per second';
-	END
+	END;
 
 	-- ### Sessions' isolation levels
 	DECLARE @IsolationReadUncomitted INT, @IsolationReadCommitted INT, @IsolationRepeatable INT, @IsolationSerializable INT, @IsolationSnapshot INT;
@@ -450,10 +462,11 @@ END;
 	DECLARE @Waits BIGINT; SELECT @Waits=SUM([cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name]='SQLServer:Wait Statistics' AND [instance_name]='Waits started per second';
 	IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(32),@Waits)+' waits initiated per second, the top wait type at this moment is "'+REPLACE(@WaitTypeCurrentMain,'  ','')+'" with '+CONVERT(NVARCHAR(32),@WaitTypeCurrentMainWaits); END;
 
-	DECLARE @WaitsCPU INT; SELECT @WaitsCPU=COUNT(*) FROM [sys].[dm_os_waiting_tasks] WHERE	[wait_type]='SOS_SCHEDULER_YIELD';
-	DECLARE @WaitsCXPACKET INT; SELECT @WaitsCXPACKET=COUNT(*) FROM [sys].[dm_os_waiting_tasks] WHERE	[wait_type]='CXPACKET';
+	DECLARE @WaitsCPU INT; SELECT @WaitsCPU=COUNT(DISTINCT [session_id]) FROM [sys].[dm_os_waiting_tasks] WHERE	[wait_type]='SOS_SCHEDULER_YIELD';
+	DECLARE @WaitsCXPACKET INT; SELECT @WaitsCXPACKET=COUNT(DISTINCT [session_id]) FROM [sys].[dm_os_waiting_tasks] WHERE [wait_type]='CXPACKET';
+	DECLARE	@WaitsIO INT; SELECT @WaitsIO=COUNT(DISTINCT [session_id]) FROM [sys].[dm_os_waiting_tasks] WHERE [wait_type] IN ('IO_COMPLETION' ,'PAGEIOLATCH_DT' ,'PAGEIOLATCH_EX' ,'PAGEIOLATCH_KP' ,'PAGEIOLATCH_NL' ,'PAGEIOLATCH_SH' ,'PAGEIOLATCH_UP' ,'PAGELATCH_DT' ,'PAGELATCH_EX' ,'PAGELATCH_KP' ,'PAGELATCH_NL' ,'PAGELATCH_SH' ,'PAGELATCH_UP' ,'PREEMPTIVE_OS_FILEOPS' ,'SLEEP_BPOOL_FLUSH' ,'WRITE_COMPLETION' ,'WRITELOG');
 	DECLARE @IO_pend_requests INT; SELECT @IO_pend_requests=COUNT([io_pending]) FROM [sys].[dm_io_pending_io_requests] WHERE [io_type]='disk' AND [io_pending]=1;
-	PRINT CONVERT(NVARCHAR(64),@IO_pend_requests)+' pending IO requests, '+ISNULL(NULL,'0')+' waits initiated on IO, '+CONVERT(NVARCHAR(16),@WaitsCPU)+' on CPU, and '+CONVERT(NVARCHAR(16),@WaitsCXPACKET)+' on parallelism';
+	PRINT CONVERT(NVARCHAR(64),@IO_pend_requests)+' pending IO requests, '+CONVERT(NVARCHAR(16),@WaitsIO)++' waits initiated on IO, '+CONVERT(NVARCHAR(16),@WaitsCPU)+' on CPU, and '+CONVERT(NVARCHAR(16),@WaitsCXPACKET)+' on parallelism';
 
 	-- ### Memory grants
 	DECLARE @MemoryGrants INT; SELECT @MemoryGrants=[cntr_value] FROM [sys].[dm_os_performance_counters] WHERE	[object_name] IN ('SQLServer:Memory Manager') AND [counter_name] IN ('Memory Grants Outstanding');
@@ -616,21 +629,21 @@ END;
 			(	SELECT [perfmon_diff_mirroring].[counter_name], ( CONVERT(DECIMAL(32,2),([perfmon_diff_mirroring].[cntr_value])-CONVERT(DECIMAL(32,2),[perfmon_baseline_m].[cntr_value])) / (DATEDIFF(MILLISECOND,@start_time,GETDATE())/1000) ) [cntr_value]
 				FROM [sys].[dm_os_performance_counters] [perfmon_diff_mirroring]
 				INNER JOIN [#perfmon_baseline_mirroring] [perfmon_baseline_m] ON [perfmon_baseline_m].[counter_name] = [perfmon_diff_mirroring].[counter_name]
-				WHERE	[object_name]='SQLServer:Database Mirroring'
+				WHERE	[perfmon_diff_mirroring].[object_name]='SQLServer:Database Mirroring'
 						AND ([perfmon_diff_mirroring].[counter_name] IN ('Bytes Sent/sec' ,'Bytes Received/sec' ,'Mirrored Write Transactions/sec' ,'Transaction Delay')
-							 AND [instance_name]='_Total'
+							 AND [perfmon_diff_mirroring].[instance_name]='_Total'
 							 )
 			) [perfmon_results_t_m]
 		)
-		SELECT	 @Mirroring_BytesSent_sec=(SELECT [cntr_value] FROM [perfmon_results_mirroring] WHERE [counter_name]='Bytes Sent/sec')
-				,@Mirroring_BytesReceived_sec=(SELECT [cntr_value] FROM [perfmon_results_mirroring] WHERE [counter_name]='Bytes Received/sec')
-				,@Mirroring_Mirrored_WriteTransactions_sec=(SELECT [cntr_value] FROM [perfmon_results_mirroring] WHERE [counter_name]='Mirrored Write Transactions/sec')
-				,@Mirroring_Transaction_Delay=(SELECT [cntr_value] FROM [perfmon_results_mirroring] WHERE [counter_name]='Transaction Delay')
-				,@Mirroring_LogSendQueueKB=(SELECT [cntr_value] FROM [sys].[dm_os_performance_counters] WHERE [object_name]='SQLServer:Database Mirroring' AND [instance_name]='_Total' AND [counter_name]='Log Send Queue KB')
+		SELECT	 @Mirroring_BytesSent_sec=ISNULL((SELECT [perfmon_results_mirroring].[cntr_value] FROM [perfmon_results_mirroring] WHERE [perfmon_results_mirroring].[counter_name]='Bytes Sent/sec'),0)
+				,@Mirroring_BytesReceived_sec=ISNULL((SELECT [perfmon_results_mirroring].[cntr_value] FROM [perfmon_results_mirroring] WHERE [perfmon_results_mirroring].[counter_name]='Bytes Received/sec'),0)
+				,@Mirroring_Mirrored_WriteTransactions_sec=ISNULL((SELECT [perfmon_results_mirroring].[cntr_value] FROM [perfmon_results_mirroring] WHERE [perfmon_results_mirroring].[counter_name]='Mirrored Write Transactions/sec'),0)
+				,@Mirroring_Transaction_Delay=ISNULL((SELECT [perfmon_results_mirroring].[cntr_value] FROM [perfmon_results_mirroring] WHERE [perfmon_results_mirroring].[counter_name]='Transaction Delay'),0)
+				,@Mirroring_LogSendQueueKB=ISNULL((SELECT [cntr_value] FROM [sys].[dm_os_performance_counters] WHERE [object_name]='SQLServer:Database Mirroring' AND [instance_name]='_Total' AND [counter_name]='Log Send Queue KB'),0);
 
 		IF OBJECT_ID('tempdb..#perfmon_baseline_mirroring') IS NOT NULL BEGIN DROP TABLE [#perfmon_baseline_mirroring]; END;
 
-		PRINT CONVERT(NVARCHAR(8),@Mirroring_Mirrored_WriteTransactions_sec)+' mirrored transactions, sending '+CONVERT(NVARCHAR(8),( @Mirroring_BytesSent_sec/1024) )+ ' KB and receiving '+CONVERT(NVARCHAR(8),(@Mirroring_BytesReceived_sec/1024) )+' KB per second with '+CONVERT(NVARCHAR(8),@Mirroring_Transaction_Delay)+' ms latency, '+CONVERT(NVARCHAR(8),@Mirroring_LogSendQueueKB)+' KB unsent'
+		PRINT CONVERT(NVARCHAR(8),@Mirroring_Mirrored_WriteTransactions_sec)+' mirrored transactions, sending '+CONVERT(NVARCHAR(8),( @Mirroring_BytesSent_sec/1024) )+ ' KB and receiving '+CONVERT(NVARCHAR(8),(@Mirroring_BytesReceived_sec/1024) )+' KB per second with '+CONVERT(NVARCHAR(8),@Mirroring_Transaction_Delay)+' ms latency, '+CONVERT(NVARCHAR(8),@Mirroring_LogSendQueueKB)+' KB unsent';
 
 	END;
 
