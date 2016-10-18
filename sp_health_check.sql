@@ -18,7 +18,7 @@ sp_health_check is licensed free as long as all its contents are preserved, incl
 cannot be redistributed or sold either partially or as a whole without the author's expressed written approval. 
 
 Some scripts that are part of this compound of code were not created by the author and belong to their original creator or owner 
-for all purposes. Other author's credit is specified within the stored procedure's code. You can find more details on this at 
+for all purposes. Other authors' credit is specified within the stored procedure's code. You can find more details on this at 
 https://sqlhealthcheck.net/overview
 
 This script is provided as is without guarantee, documentation, or technical support, and should be properly understood and tested
@@ -55,9 +55,103 @@ BEGIN
 	RETURN;
 END;
 
-
-
 	DECLARE @cmd NVARCHAR(MAX);
+
+	-- ### dm_os_performance_counters
+	DECLARE @os_performance_counters INT; SELECT @os_performance_counters=COUNT(*) FROM [sys].[dm_os_performance_counters];
+
+	IF @os_performance_counters>0
+	BEGIN
+
+		-- ### General perfmon values	
+		IF OBJECT_ID('tempdb..#perfmon_baseline') IS NOT NULL BEGIN DROP TABLE [#perfmon_baseline]; END;
+		DECLARE @start_time DATETIME=GETDATE();
+
+		SELECT [counter_name], [cntr_value]
+		INTO [#perfmon_baseline]
+		FROM [sys].[dm_os_performance_counters]
+		WHERE ([counter_name] IN  
+							('Batch Requests/sec'			,'Logins/sec'				,'Logouts/sec'				,'Connection Reset/sec'
+							,'SQL Compilations/sec'			,'SQL Re-Compilations/sec'	,'Query optimizations/sec'
+							,'Page writes/sec'				,'Page Splits/sec'			,'Page reads/sec'			,'Checkpoint pages/sec'			
+							,'Lazy writes/sec'				,'Forwarded Records/sec'	,'Page Deallocations/sec'	,'Pages Allocated/sec'
+							,'Readahead pages/sec'			,'Full Scans/sec'			,'Index Searches/sec'		,'Page lookups/sec'
+							,'Range Scans/sec'				,'Pages compressed/sec'
+							)
+		)
+		OR ([counter_name] IN 
+							('Transactions/sec'					,'Write Transactions/sec'			,'Number of Deadlocks/sec'
+							,'Lock Requests/sec'				,'Log Bytes Flushed/sec'			,'Log Flushes/sec'
+							)
+			AND [instance_name]='_Total'
+		)
+
+		-- ### Mirroring values
+		DECLARE @mirror_COUNT INT; SELECT @mirror_COUNT=COUNT([mirroring_guid]) FROM [sys].[database_mirroring] WHERE  [mirroring_guid] IS NOT NULL;
+		DECLARE @mirrorCOUNTsynch INT; SELECT @mirrorCOUNTsynch=COUNT([mirroring_guid]) FROM [sys].[database_mirroring] WHERE [mirroring_state]=4;
+
+		IF @mirror_COUNT>0
+		BEGIN
+			IF OBJECT_ID('tempdb..#perfmon_baseline_mirroring') IS NOT NULL BEGIN DROP TABLE [#perfmon_baseline_mirroring]; END;
+
+			SELECT	[counter_name]
+				   ,[cntr_value]
+			INTO	[#perfmon_baseline_mirroring]
+			FROM	[sys].[dm_os_performance_counters]
+			WHERE	[object_name]='SQLServer:Database Mirroring'
+					AND ([counter_name] IN ('Bytes Sent/sec' ,'Bytes Received/sec' ,'Mirrored Write Transactions/sec' ,'Transaction Delay')
+						 AND [instance_name]='_Total'
+						 );
+		END;
+
+		WAITFOR DELAY '00:00:01:30'; -- Timeframe to compare the captured data
+
+		DECLARE  @BatchRequests_sec BIGINT,		@Transactions_sec BIGINT	,@WriteTransactions_sec BIGINT,		@Logins_sec BIGINT				,@Logouts_sec BIGINT
+				,@Compilations_sec BIGINT,		@ReCompilations_sec BIGINT	,@QueryOptimizations_sec BIGINT,	@BufferPageWrites_sec BIGINT	,@BufferPageReads_sec BIGINT
+				,@BufferLazyWrites_sec BIGINT,	@CheckpointPages_sec BIGINT	,@PageSplits_sec BIGINT			   ,@MemoryGrants_sec DECIMAL(10,1);
+
+		;WITH [perfmon_results] AS (
+			SELECT * FROM 
+			(	SELECT [perfmon_diff].[counter_name], ( CONVERT(DECIMAL(32,2),([perfmon_diff].[cntr_value])-CONVERT(DECIMAL(32,2),[perfmon_baseline].[cntr_value])) / (DATEDIFF(MILLISECOND,@start_time,GETDATE())/1000) ) [cntr_value]
+				FROM [sys].[dm_os_performance_counters] [perfmon_diff]
+				INNER JOIN [#perfmon_baseline] [perfmon_baseline] ON [perfmon_baseline].[counter_name] = [perfmon_diff].[counter_name]
+				WHERE ([perfmon_diff].[counter_name] IN  
+							('Batch Requests/sec'			,'Logins/sec'				,'Logouts/sec'				,'Connection Reset/sec'
+							,'SQL Compilations/sec'			,'SQL Re-Compilations/sec'	,'Query optimizations/sec'
+							,'Page writes/sec'				,'Page Splits/sec'			,'Page reads/sec'			,'Checkpoint pages/sec'			
+							,'Lazy writes/sec'				,'Forwarded Records/sec'	,'Page Deallocations/sec'	,'Pages Allocated/sec'
+							,'Readahead pages/sec'			,'Full Scans/sec'			,'Index Searches/sec'		,'Page lookups/sec'
+							,'Range Scans/sec'				,'Pages compressed/sec'
+							)
+						)
+						OR ([perfmon_diff].[counter_name] IN 
+							('Transactions/sec'				,'Write Transactions/sec'
+							,'Lock Requests/sec'			,'Log Bytes Flushed/sec'	,'Log Flushes/sec'
+							)
+							AND [instance_name]='_Total'
+					)
+			) [perfmon_results_t]
+		)
+
+		SELECT   @BatchRequests_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Batch Requests/sec')
+				,@Transactions_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Transactions/sec')
+				,@WriteTransactions_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Write Transactions/sec')
+				,@Logins_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Logins/sec')
+				,@Logouts_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Logouts/sec')
+				,@Compilations_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='SQL Compilations/sec')
+				,@ReCompilations_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='SQL Re-Compilations/sec')
+				,@QueryOptimizations_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Query optimizations/sec')
+				,@BufferPageWrites_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Page writes/sec')
+				,@BufferPageReads_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Page reads/sec')
+				,@BufferLazyWrites_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Lazy writes/sec')
+				,@CheckpointPages_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Checkpoint pages/sec')
+				,@PageSplits_sec=(SELECT [cntr_value] FROM [perfmon_results] WHERE [counter_name]='Page Splits/sec')
+		FROM [perfmon_results];
+
+		IF OBJECT_ID('tempdb..#perfmon_baseline') IS NOT NULL BEGIN DROP TABLE [#perfmon_baseline]; END;
+	
+	END
+
 
 --===============================================================================================================================--
 --======================================================= SERVER DETAILS ========================================================--
@@ -144,21 +238,21 @@ END;
 	END;
 
 	-- ### Engine service running info
-	PRINT 'The engine service has been up since '+CONVERT(NVARCHAR(19),@tempDBcreate,120)+', '+CONVERT(NVARCHAR(6),@hours)+' hours and '+CONVERT(NVARCHAR(3),@minutes)+' minutes ago as process ID '+CONVERT(NVARCHAR,SERVERPROPERTY('ProcessID'))+' under ['+@SrvAccDBEngine+']';
+	PRINT 'The engine has been up since '+CONVERT(NVARCHAR(19),@tempDBcreate,120)+', '+CONVERT(NVARCHAR(6),@hours)+' hours and '+CONVERT(NVARCHAR(3),@minutes)+' minutes ago as process ID '+CONVERT(NVARCHAR,SERVERPROPERTY('ProcessID'))+' under ['+@SrvAccDBEngine+']';
 
 	-- ### Is the agent service running?
 	IF EXISTS (SELECT 1 FROM [master].[sys].[sysprocesses] WHERE [program_name] LIKE 'SQLAgent%') 
 	BEGIN
-		PRINT 'The agent service has been running for the last '+CONVERT(NVARCHAR,DATEDIFF(hh,@sqlagentstart,GETDATE()))+' hours under ['+@SrvAccAgent+']';
+		PRINT 'The agent has been running for the last '+CONVERT(NVARCHAR,DATEDIFF(hh,@sqlagentstart,GETDATE()))+' hours under ['+@SrvAccAgent+']';
 	END;
 	ELSE
 	BEGIN
-		IF (@iscluster=0)
-		BEGIN
-			PRINT 'EXEC master.sys.xp_servicecontrol N''querystate'',N''SQLServerAGENT'';  --Query current status'; PRINT 'EXEC master.sys.xp_servicecontrol N''start'',N''SQLServerAGENT''; --Start the service';
-			--PRINT 'EXEC xp_cmdshell ''SC QUERY SQLSERVERAGENT'''; --PRINT 'EXEC xp_cmdshell ''SC START SQLSERVERAGENT''';
-		END;
 		PRINT '[!] The SQLServerAgent service is NOT in running status';
+		--IF (@iscluster=0)
+		--BEGIN
+			--PRINT 'EXEC master.sys.xp_servicecontrol N''querystate'',N''SQLServerAGENT'';  --Query current status'; PRINT 'EXEC master.sys.xp_servicecontrol N''start'',N''SQLServerAGENT''; --Start the service';
+			--PRINT 'EXEC xp_cmdshell ''SC QUERY SQLSERVERAGENT'''; --PRINT 'EXEC xp_cmdshell ''SC START SQLSERVERAGENT''';
+		--END;
 	END;
 
 	-- ### Traces, Server Event Notifications, Extended Events and Server Triggers count
@@ -252,10 +346,7 @@ END;
 	END;
 	
 	DECLARE @Parallelism_MAXDOP INT, @Parallelism_CostThreshold INT; SELECT @Parallelism_MAXDOP=CONVERT(INT,[value]) FROM [sys].[configurations] WHERE [name]='max degree of parallelism'; SELECT @Parallelism_CostThreshold=CONVERT(INT,[value]) FROM [sys].[configurations] WHERE [name]='cost threshold for parallelism';	
-	PRINT N'The maximum degree of parallelism is set as '+CONVERT(NVARCHAR(8),@Parallelism_MAXDOP)+' with a cost threshold of '+CONVERT(NVARCHAR(8),@Parallelism_CostThreshold);
-
-	-- ### perfmon counters count
-	DECLARE @os_performance_counters INT; SELECT @os_performance_counters=COUNT(*) FROM [sys].[dm_os_performance_counters];
+	PRINT N'Max degree of parallelism set as '+CONVERT(NVARCHAR(8),@Parallelism_MAXDOP)+' with a cost threshold of '+CONVERT(NVARCHAR(8),@Parallelism_CostThreshold);
 
 	-- ### Memory data
 	DECLARE @TotalServerMemory INT; SELECT @TotalServerMemory=[cntr_value]/1024 FROM [sys].[dm_os_performance_counters] WHERE	[object_name] IN ('SQLServer:Memory Manager')	AND [counter_name] IN ('Total Server Memory (KB)');
@@ -274,10 +365,6 @@ END;
 		EXEC [master].[sys].[sp_executesql] @cmd, N'@os_memory NVARCHAR(8) out', @os_memory OUTPUT;
 		IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(20),@os_memory)+' MB of memory with '+CONVERT(NVARCHAR(32),@TotalServerMemory)+' currently assigned for SQL which is targeting '+CONVERT(NVARCHAR(32),@TargetServerMemory)+' and maxed at '+CONVERT(NVARCHAR(20),@max_buff_mem); END;
 	END;
-	
-	DECLARE @BufferCHR DECIMAL(10,2); SET @BufferCHR=((SELECT CONVERT(DECIMAL(16,2),[cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name] ='SQLServer:Buffer Manager'	AND [counter_name]='Buffer cache hit ratio') / (SELECT CONVERT(DECIMAL(16,2),[cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name] ='SQLServer:Buffer Manager' AND [counter_name]='Buffer cache hit ratio base'))*100;
-	DECLARE @PLE BIGINT; SELECT @PLE=[cntr_value] FROM [sys].[dm_os_performance_counters] WHERE [object_name] LIKE '%Manager%' AND [counter_name]='Page life expectancy';
-	IF @os_performance_counters<>0 BEGIN PRINT 'Cache Hit Ratio at '+CONVERT(NVARCHAR(6),@BufferCHR)+'%, Page Life Expectancy at '+CONVERT(NVARCHAR(15),@PLE)+' secs ('+CONVERT(NVARCHAR(15),@PLE/60)+' min)'; END;
 
 	IF (CONVERT(INT,@@microsoftversion)>=171051460) --SQL2008R2SP1 or greater
 	BEGIN
@@ -286,6 +373,12 @@ END;
 		IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(64),@BufferDBPages)+' MB of memory used as buffer for database pages ('+CONVERT(NVARCHAR(16),CONVERT(DECIMAL(4,2),(CONVERT(DECIMAL(16,4),CONVERT(DECIMAL(16,5),@BufferDBPages) / CONVERT(DECIMAL(16,5),@TotalServerMemory)))*100))+'%), '+CONVERT(NVARCHAR(64),@MemoryPlanCache)+' MB for plan cache ('+CONVERT(NVARCHAR(16),CONVERT(DECIMAL(4,2),(CONVERT(DECIMAL(16,4),CONVERT(DECIMAL(16,5),@MemoryPlanCache) / CONVERT(DECIMAL(16,5),@TotalServerMemory)))*100))+'%)'; END;
 	END;
 	
+	DECLARE @BufferCHR DECIMAL(10,2); SET @BufferCHR=((SELECT CONVERT(DECIMAL(16,2),[cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name] ='SQLServer:Buffer Manager'	AND [counter_name]='Buffer cache hit ratio') / (SELECT CONVERT(DECIMAL(16,2),[cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name] ='SQLServer:Buffer Manager' AND [counter_name]='Buffer cache hit ratio base'))*100;
+	DECLARE @PLE BIGINT; SELECT @PLE=[cntr_value] FROM [sys].[dm_os_performance_counters] WHERE [object_name] LIKE '%Manager%' AND [counter_name]='Page life expectancy';
+	IF @os_performance_counters<>0 BEGIN PRINT 'Cache hit ratio at '+CONVERT(NVARCHAR(6),@BufferCHR)+'%, page life expectancy at '+CONVERT(NVARCHAR(15),@PLE)+' secs ('+CONVERT(NVARCHAR(15),@PLE/60)+' min)'
+										 PRINT CONVERT(NVARCHAR(16),@BufferPageReads_sec)+' ('+CONVERT(NVARCHAR(8),((@BufferPageReads_sec*8)/1024))+' MB) page reads, '+CONVERT(NVARCHAR(16),@BufferPageWrites_sec)+' ('+CONVERT(NVARCHAR(8),((@BufferPageWrites_sec*8)/1024))+' MB) page writes, '+CONVERT(NVARCHAR(16),@PageSplits_sec)+' ('+CONVERT(NVARCHAR(16),( (@PageSplits_sec*8)/1024) )+' MB) page splits, '+CONVERT(NVARCHAR(16),@CheckpointPages_sec)+' ('+CONVERT(NVARCHAR(16),( (@CheckpointPages_sec*8)/1024) )+' MB) checkpoint pages, and '+CONVERT(NVARCHAR(16),@CheckpointPages_sec)+' lazy writes per second'
+								   END;
+
 	PRINT ''; -- Print break
 
 	-- ### Check if perfmon counters are missing
@@ -311,15 +404,13 @@ END;
 	DECLARE @TransactionsBlocked INT; SELECT @TransactionsBlocked = [cntr_value] FROM [sys].[dm_os_performance_counters] WHERE ([object_name]='SQLServer:General Statistics' AND [counter_name]='Processes blocked');
 	DECLARE @connections INT; SELECT @connections=[cntr_value] FROM [sys].[dm_os_performance_counters] WHERE ([object_name]='SQLServer:General Statistics' AND [counter_name]='User Connections');
 	DECLARE @ConnectionsMemory INT; SELECT @ConnectionsMemory= [cntr_value] FROM [sys].[dm_os_performance_counters] WHERE	[object_name] IN ('SQLServer:Memory Manager') AND [counter_name] IN ('Connection Memory (KB)');
-	IF @TransactionsBlocked>0
-	BEGIN
-		IF @os_performance_counters<>0 BEGIN PRINT '[!] '+CONVERT(NVARCHAR(8),@connections)+' user connections using '+CONVERT(NVARCHAR(16),@ConnectionsMemory/1024)+' MB of memory, '+CONVERT(NVARCHAR(16),@Transactions)+' transactions executing and '+CONVERT(NVARCHAR(8),@TransactionsBlocked)+' blocked'; END;
-	END;
 
-	IF @TransactionsBlocked=0
+	IF @os_performance_counters<>0 
 	BEGIN
-		IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(8),@connections)+' user connections using '+CONVERT(NVARCHAR(16),@ConnectionsMemory/1024)+' MB of memory, '+CONVERT(NVARCHAR(16),@Transactions)+' transactions executing and '+CONVERT(NVARCHAR(8),@TransactionsBlocked)+' blocked'; END;
-	END;
+			PRINT CONVERT(NVARCHAR(8),@Logins_sec)+ ' logins and '+CONVERT(NVARCHAR(8),@Logouts_sec)+' logouts per second, '+ CONVERT(NVARCHAR(8),@connections)+' concurrent user connections using '+CONVERT(NVARCHAR(16),@ConnectionsMemory/1024)+' MB of memory';
+			PRINT CONVERT(NVARCHAR(16),@BatchRequests_sec)+' batch requests, '+CONVERT(NVARCHAR(16),@Transactions_sec)+' transactions, and '+CONVERT(NVARCHAR(16),@WriteTransactions_sec)+' writting transactions per second, '+CONVERT(NVARCHAR(16),@Transactions)+' currently executing and '+CONVERT(NVARCHAR(8),@TransactionsBlocked)+' blocked'; 
+			PRINT CONVERT(NVARCHAR(8),@Compilations_sec)+' compilations, '+CONVERT(NVARCHAR(8),@ReCompilations_sec)+' recompilations, '+CONVERT(NVARCHAR(8),@QueryOptimizations_sec)+' query optimizations per second';
+	END
 
 	-- ### Sessions' isolation levels
 	DECLARE @IsolationReadUncomitted INT, @IsolationReadCommitted INT, @IsolationRepeatable INT, @IsolationSerializable INT, @IsolationSnapshot INT;
@@ -354,33 +445,34 @@ END;
 
 	PRINT ''; --Break
 
-	-- ### Memory stats 
+	-- ### Top wait	
+	DECLARE @WaitTypeCurrentMain NVARCHAR(64), @WaitTypeCurrentMainWaits INT; SELECT TOP 1 @WaitTypeCurrentMain=[wait_type], @WaitTypeCurrentMainWaits=COUNT([wait_type]) FROM [sys].[dm_os_waiting_tasks] WHERE [wait_type] NOT IN (N'REQUEST_FOR_DEADLOCK_SEARCH',N'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',N'SQLTRACE_BUFFER_FLUSH',N'LAZYWRITER_SLEEP',N'XE_TIMER_EVENT',N'XE_DISPATCHER_WAIT',N'FT_IFTS_SCHEDULER_IDLE_WAIT',N'LOGMGR_QUEUE',N'CHECKPOINT_QUEUE',N'BROKER_TO_FLUSH',N'BROKER_TASK_STOP',N'BROKER_EVENTHANDLER',N'SLEEP_TASK',N'WAITFOR',N'DBMIRROR_DBM_MUTEX',N'DBMIRROR_EVENTS_QUEUE',N'DBMIRRORING_CMD',N'DISPATCHER_QUEUE_SEMAPHORE',N'BROKER_RECEIVE_WAITFOR',N'CLR_AUTO_EVENT',N'DIRTY_PAGE_POLL',N'HADR_FILESTREAM_IOMGR_IOCOMPLETION',N'ONDEMAND_TASK_QUEUE',N'FT_IFTSHC_MUTEX',N'CLR_MANUAL_EVENT',N'SP_SERVER_DIAGNOSTICS_SLEEP',N'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',N'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP') GROUP BY [wait_type] ORDER BY COUNT([wait_type]) DESC;
+	DECLARE @Waits BIGINT; SELECT @Waits=SUM([cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name]='SQLServer:Wait Statistics' AND [instance_name]='Waits started per second';
+	IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(32),@Waits)+' waits initiated per second, the top wait type at this moment is "'+REPLACE(@WaitTypeCurrentMain,'  ','')+'" with '+CONVERT(NVARCHAR(32),@WaitTypeCurrentMainWaits); END;
+
+	DECLARE @WaitsCPU INT; SELECT @WaitsCPU=COUNT(*) FROM [sys].[dm_os_waiting_tasks] WHERE	[wait_type]='SOS_SCHEDULER_YIELD';
+	DECLARE @WaitsCXPACKET INT; SELECT @WaitsCXPACKET=COUNT(*) FROM [sys].[dm_os_waiting_tasks] WHERE	[wait_type]='CXPACKET';
+	DECLARE @IO_pend_requests INT; SELECT @IO_pend_requests=COUNT([io_pending]) FROM [sys].[dm_io_pending_io_requests] WHERE [io_type]='disk' AND [io_pending]=1;
+	PRINT CONVERT(NVARCHAR(64),@IO_pend_requests)+' pending IO requests, '+ISNULL(NULL,'0')+' waits initiated on IO, '+CONVERT(NVARCHAR(16),@WaitsCPU)+' on CPU, and '+CONVERT(NVARCHAR(16),@WaitsCXPACKET)+' on parallelism';
+
+	-- ### Memory grants
 	DECLARE @MemoryGrants INT; SELECT @MemoryGrants=[cntr_value] FROM [sys].[dm_os_performance_counters] WHERE	[object_name] IN ('SQLServer:Memory Manager') AND [counter_name] IN ('Memory Grants Outstanding');
-	DECLARE @MemoryGrantsPending INT; SELECT @MemoryGrantsPending=[cntr_value] FROM [sys].[dm_os_performance_counters] WHERE	[object_name] IN ('SQLServer:Memory Manager') AND [counter_name] IN ('Memory Grants Pending');
+	DECLARE @MemoryGrantsPending INT; SELECT @MemoryGrantsPending=[cntr_value] FROM [sys].[dm_os_performance_counters] WHERE [object_name] IN ('SQLServer:Memory Manager') AND [counter_name] IN ('Memory Grants Pending');
 
 	IF (CONVERT(INT,@@microsoftversion)>=171051460) --SQL2008R2SP1 or greater
 	BEGIN
 		DECLARE @MemoryGrantsReserve INT; SELECT @MemoryGrantsReserve=[allocations_kb]/1024 FROM [sys].[dm_os_memory_brokers] WHERE [memory_broker_type]='MEMORYBROKER_FOR_RESERVE';
-		IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(64),@MemoryGrants)+' memory grants and '+CONVERT(NVARCHAR(64),@MemoryGrantsPending)+' pending with '+CONVERT(NVARCHAR(64),@MemoryGrantsReserve)+' MB of memory reserved for executions ('+CONVERT(NVARCHAR(16),CONVERT(DECIMAL(4,2),(CONVERT(DECIMAL(16,4),CONVERT(DECIMAL(16,5),@MemoryGrantsReserve) / CONVERT(DECIMAL(16,5),@TotalServerMemory)))*100))+'%)'; END;
+		IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(64),@MemoryGrants)+' existing memory grants, and '+CONVERT(NVARCHAR(64),@MemoryGrantsPending)+' pending, with '+CONVERT(NVARCHAR(64),@MemoryGrantsReserve)+' MB of memory reserved for executions ('+CONVERT(NVARCHAR(16),CONVERT(DECIMAL(4,2),(CONVERT(DECIMAL(16,4),CONVERT(DECIMAL(16,5),@MemoryGrantsReserve) / CONVERT(DECIMAL(16,5),@TotalServerMemory)))*100))+'%)'; END;
 	END;
 	ELSE
 	BEGIN
 		IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(64),@MemoryGrants)+' memory grants and '+CONVERT(NVARCHAR(64),@MemoryGrantsPending)+' pending'; END;
 	END;
 
-	DECLARE @WaitforTheWorker INT; SELECT @WaitforTheWorker=[cntr_value] FROM [sys].[dm_os_performance_counters] WHERE [object_name]='SQLServer:Wait Statistics' AND [counter_name]='Wait for the worker' AND [instance_name]='Waits started per second';
-	DECLARE @IO_pend_requests INT; SELECT @IO_pend_requests=COUNT([io_pending]) FROM [sys].[dm_io_pending_io_requests] WHERE [io_type]='disk' AND [io_pending]=1;
-	IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(64),@IO_pend_requests)+' pending "disk" I/O requests, '+CONVERT(NVARCHAR(64),@WaitforTheWorker)+' waits initiated on CPU'; END;
-
-	-- ### Top wait	
-	DECLARE @WaitTypeCurrentMain NVARCHAR(64), @WaitTypeCurrentMainWaits INT; SELECT TOP 1 @WaitTypeCurrentMain=[wait_type], @WaitTypeCurrentMainWaits=COUNT([wait_type]) FROM [sys].[dm_os_waiting_tasks] WHERE [wait_type] NOT IN (N'REQUEST_FOR_DEADLOCK_SEARCH',N'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',N'SQLTRACE_BUFFER_FLUSH',N'LAZYWRITER_SLEEP',N'XE_TIMER_EVENT',N'XE_DISPATCHER_WAIT',N'FT_IFTS_SCHEDULER_IDLE_WAIT',N'LOGMGR_QUEUE',N'CHECKPOINT_QUEUE',N'BROKER_TO_FLUSH',N'BROKER_TASK_STOP',N'BROKER_EVENTHANDLER',N'SLEEP_TASK',N'WAITFOR',N'DBMIRROR_DBM_MUTEX',N'DBMIRROR_EVENTS_QUEUE',N'DBMIRRORING_CMD',N'DISPATCHER_QUEUE_SEMAPHORE',N'BROKER_RECEIVE_WAITFOR',N'CLR_AUTO_EVENT',N'DIRTY_PAGE_POLL',N'HADR_FILESTREAM_IOMGR_IOCOMPLETION',N'ONDEMAND_TASK_QUEUE',N'FT_IFTSHC_MUTEX',N'CLR_MANUAL_EVENT',N'SP_SERVER_DIAGNOSTICS_SLEEP',N'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',N'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP') GROUP BY [wait_type] ORDER BY COUNT([wait_type]) DESC;
-	DECLARE @Waits INT; SELECT @Waits=SUM([cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name]='SQLServer:Wait Statistics' AND [instance_name]='Waits started per second';
-	IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(32),@Waits)+' waits initiated per second, the top wait type at this moment is "'+REPLACE(@WaitTypeCurrentMain,'  ','')+'" with '+CONVERT(NVARCHAR(32),@WaitTypeCurrentMainWaits); END;
-
 	DECLARE @WaitTypeAggregatedMain NVARCHAR(64), @WaitTypeAggregatedPercentage DECIMAL(5,2); 
 	/* Credit for this block to Paul Randal http://www.sqlskills.com/blogs/paul/wait-statistics-or-please-tell-me-where-it-hurts */ 
 	;WITH [Waits] AS (SELECT [wait_type], [wait_time_ms] / 1000.0 AS [WaitS], ([wait_time_ms] - [signal_wait_time_ms]) / 1000.0 AS [ResourceS], [signal_wait_time_ms] / 1000.0 AS [SignalS], [waiting_tasks_count] AS [WaitCount],100.0 * [wait_time_ms] / SUM ([wait_time_ms]) OVER() AS [Percentage],ROW_NUMBER() OVER(ORDER BY [wait_time_ms] DESC) AS [RowNum] FROM [sys].[dm_os_wait_stats]     WHERE [wait_type] NOT IN (         N'BROKER_EVENTHANDLER',             N'BROKER_RECEIVE_WAITFOR',         N'BROKER_TASK_STOP',                N'BROKER_TO_FLUSH',         N'BROKER_TRANSMITTER',              N'CHECKPOINT_QUEUE',         N'CHKPT',                           N'CLR_AUTO_EVENT',         N'CLR_MANUAL_EVENT',                N'CLR_SEMAPHORE',         N'DBMIRROR_DBM_EVENT',              N'DBMIRROR_EVENTS_QUEUE',         N'DBMIRROR_WORKER_QUEUE',           N'DBMIRRORING_CMD',         N'DIRTY_PAGE_POLL',                 N'DISPATCHER_QUEUE_SEMAPHORE',         N'EXECSYNC',                        N'FSAGENT',         N'FT_IFTS_SCHEDULER_IDLE_WAIT',     N'FT_IFTSHC_MUTEX',         N'HADR_CLUSAPI_CALL',               N'HADR_FILESTREAM_IOMGR_IOCOMPLETION',         N'HADR_LOGCAPTURE_WAIT',            N'HADR_NOTIFICATION_DEQUEUE',         N'HADR_TIMER_TASK',                 N'HADR_WORK_QUEUE',         N'KSOURCE_WAKEUP',                  N'LAZYWRITER_SLEEP',         N'LOGMGR_QUEUE',                    N'ONDEMAND_TASK_QUEUE',         N'PWAIT_ALL_COMPONENTS_INITIALIZED',         N'QDS_PERSIST_TASK_MAIN_LOOP_SLEEP',         N'QDS_SHUTDOWN_QUEUE',         N'QDS_CLEANUP_STALE_QUERIES_TASK_MAIN_LOOP_SLEEP',         N'REQUEST_FOR_DEADLOCK_SEARCH',     N'RESOURCE_QUEUE',         N'SERVER_IDLE_CHECK',               N'SLEEP_BPOOL_FLUSH',         N'SLEEP_DBSTARTUP',                 N'SLEEP_DCOMSTARTUP',         N'SLEEP_MASTERDBREADY',             N'SLEEP_MASTERMDREADY',         N'SLEEP_MASTERUPGRADED',            N'SLEEP_MSDBSTARTUP',         N'SLEEP_SYSTEMTASK',                N'SLEEP_TASK',         N'SLEEP_TEMPDBSTARTUP',             N'SNI_HTTP_ACCEPT',         N'SP_SERVER_DIAGNOSTICS_SLEEP',     N'SQLTRACE_BUFFER_FLUSH',         N'SQLTRACE_INCREMENTAL_FLUSH_SLEEP',         N'SQLTRACE_WAIT_ENTRIES',           N'WAIT_FOR_RESULTS',         N'WAITFOR',                         N'WAITFOR_TASKSHUTDOWN',         N'WAIT_XTP_HOST_WAIT',              N'WAIT_XTP_OFFLINE_CKPT_NEW_LOG',         N'WAIT_XTP_CKPT_CLOSE',             N'XE_DISPATCHER_JOIN',         N'XE_DISPATCHER_WAIT',              N'XE_TIMER_EVENT')     AND [waiting_tasks_count] > 0  ) SELECT TOP 1     @WaitTypeAggregatedMain=MAX ([W1].[wait_type]),     @WaitTypeAggregatedPercentage=CAST (MAX ([W1].[Percentage]) AS DECIMAL (5,2)) FROM [Waits] AS [W1] INNER JOIN [Waits] AS [W2]     ON [W2].[RowNum] <= [W1].[RowNum] GROUP BY [W1].[RowNum] HAVING SUM ([W2].[Percentage]) - MAX ([W1].[Percentage]) < 95;
-	PRINT 'The aggregated top wait type since the cache was last cleared is "'+@WaitTypeAggregatedMain+'", having '+CONVERT(NVARCHAR(6),@WaitTypeAggregatedPercentage)+'% in total';
+	PRINT 'The top wait type since the cache was last cleared is "'+@WaitTypeAggregatedMain+'", having '+CONVERT(NVARCHAR(6),@WaitTypeAggregatedPercentage)+'% in total';
 
 	PRINT ''; --Break
 
@@ -391,22 +483,18 @@ END;
 	SELECT @ErrorLogSevCount=COUNT([Text]) FROM [#errorlog_check] WHERE LEFT(RIGHT([Text],LEN([Text])-CHARINDEX('Severity',[Text])-9),2)>13 AND LEFT(RIGHT([Text],LEN([Text])-CHARINDEX('Severity',[Text])-9),2)<>15; DROP TABLE [#errorlog_check];
 	IF @ErrorLogSevCount>0
 	BEGIN
-		PRINT '[!] '+CONVERT(NVARCHAR(8),@ErrorLogSevCount)+' non-informational severity errors have been found on the current SQL log during the last 4 hours';
+		PRINT '[!] '+CONVERT(NVARCHAR(8),@ErrorLogSevCount)+' non-informational severity errors registered on the current error log on the past 4 hours';
 	END;
 	ELSE IF @ErrorLogSevCount=0
 	BEGIN
-		PRINT 'No non-informational severity errors have been found on the current SQL log during the last 4 hours';
+		PRINT 'No non-informational severity errors registered on the current error log on the past 4 hours';
 	END;
 
 	-- ### Databases configuration
 	DECLARE @is_auto_close_on INT, @is_auto_shrink_on INT, @page_verify_option INT, @is_auto_update_stats_on INT, @is_auto_create_stats_on INT; SELECT @is_auto_close_on=SUM(CONVERT(INT,[is_auto_close_on])), @is_auto_shrink_on=SUM(CONVERT(INT,[is_auto_shrink_on])), @page_verify_option=SUM(CASE [page_verify_option] WHEN 0 THEN 1 WHEN 1 THEN 1 ELSE 0 END), @is_auto_update_stats_on=SUM(CASE [is_auto_update_stats_on] WHEN 1 THEN 0 WHEN 0 THEN 1 END), @is_auto_create_stats_on=SUM(CASE [is_auto_create_stats_on] WHEN 1 THEN 0 WHEN 0 THEN 1 END) FROM [master].[sys].[databases]; 
 	IF (@is_auto_close_on+@is_auto_shrink_on+@is_auto_update_stats_on+@is_auto_create_stats_on)>0
 	BEGIN
-		PRINT '[!] Databases configured with'
-		+' auto-close '+CONVERT(NVARCHAR(8),@is_auto_close_on)
-		+', auto-shrink '+CONVERT(NVARCHAR(8),@is_auto_shrink_on)
-		+', no auto-create-stats '+CONVERT(NVARCHAR(8),@is_auto_create_stats_on)
-		+', no auto-update-stats '+CONVERT(NVARCHAR(8),@is_auto_update_stats_on);
+		PRINT '[!] Databases configured with auto-close '+CONVERT(NVARCHAR(8),@is_auto_close_on)+', auto-shrink '+CONVERT(NVARCHAR(8),@is_auto_shrink_on)+', no auto-create-stats '+CONVERT(NVARCHAR(8),@is_auto_create_stats_on)+', no auto-update-stats '+CONVERT(NVARCHAR(8),@is_auto_update_stats_on);
 	END;
 
 	-- ### Page verification other than CHECKSUM
@@ -486,7 +574,7 @@ END;
 	END;
 	ELSE IF @DBsNoIntegrityChk=0
 	BEGIN
-		PRINT 'All the databases on the server have had an intregrity check within the last 7 days';
+		PRINT 'All the databases on the server have had an intregrity check within the last 15 days';
 	END;
 
 	-- ### Check for existing suspect_pages within the last 15 days
@@ -507,26 +595,49 @@ END;
 --===================================================== MIRRORING STATUS ========================================================--
 --===============================================================================================================================--
 
-	DECLARE @mirror_COUNT INT; SELECT @mirror_COUNT=COUNT([mirroring_guid]) FROM [sys].[database_mirroring] WHERE  [mirroring_guid] IS NOT NULL;
-	DECLARE @mirrorCOUNTsynch INT; SELECT @mirrorCOUNTsynch=COUNT([mirroring_guid]) FROM [sys].[database_mirroring] WHERE [mirroring_state]=4;
-		
 	-- ### Check database mirroring status
 	IF (@mirror_COUNT>0) 
 	BEGIN 
 		IF (@mirror_COUNT = @mirrorCOUNTsynch) 
 			BEGIN 
-				PRINT 'All '+CONVERT(NVARCHAR(3),@mirror_COUNT)+' databases configured with mirroring are in synch status'; 
+				PRINT 'All '+CONVERT(NVARCHAR(3),@mirror_COUNT)+' databases configured with mirroring are in sync status'; 
 			END;
 		ELSE 
 			BEGIN 
-				PRINT '[!] '+CONVERT(NVARCHAR(3),(@mirror_COUNT-@mirrorCOUNTsynch))+' databases configured with mirroring are NOT in synch status';
+				PRINT '[!] '+CONVERT(NVARCHAR(3),(@mirror_COUNT-@mirrorCOUNTsynch))+' databases configured with mirroring are NOT in sync status';
 			END; 
+
+
+	-- ### Database mirroring performance stats
+		DECLARE  @Mirroring_BytesSent_sec BIGINT ,@Mirroring_BytesReceived_sec BIGINT ,@Mirroring_Mirrored_WriteTransactions_sec BIGINT ,@Mirroring_Transaction_Delay BIGINT ,@Mirroring_LogSendQueueKB BIGINT;
+
+		;WITH [perfmon_results_mirroring] AS
+		(SELECT [perfmon_results_t_m].[counter_name], [perfmon_results_t_m].[cntr_value] FROM 
+			(	SELECT [perfmon_diff_mirroring].[counter_name], ( CONVERT(DECIMAL(32,2),([perfmon_diff_mirroring].[cntr_value])-CONVERT(DECIMAL(32,2),[perfmon_baseline_m].[cntr_value])) / (DATEDIFF(MILLISECOND,@start_time,GETDATE())/1000) ) [cntr_value]
+				FROM [sys].[dm_os_performance_counters] [perfmon_diff_mirroring]
+				INNER JOIN [#perfmon_baseline_mirroring] [perfmon_baseline_m] ON [perfmon_baseline_m].[counter_name] = [perfmon_diff_mirroring].[counter_name]
+				WHERE	[object_name]='SQLServer:Database Mirroring'
+						AND ([perfmon_diff_mirroring].[counter_name] IN ('Bytes Sent/sec' ,'Bytes Received/sec' ,'Mirrored Write Transactions/sec' ,'Transaction Delay')
+							 AND [instance_name]='_Total'
+							 )
+			) [perfmon_results_t_m]
+		)
+		SELECT	 @Mirroring_BytesSent_sec=(SELECT [cntr_value] FROM [perfmon_results_mirroring] WHERE [counter_name]='Bytes Sent/sec')
+				,@Mirroring_BytesReceived_sec=(SELECT [cntr_value] FROM [perfmon_results_mirroring] WHERE [counter_name]='Bytes Received/sec')
+				,@Mirroring_Mirrored_WriteTransactions_sec=(SELECT [cntr_value] FROM [perfmon_results_mirroring] WHERE [counter_name]='Mirrored Write Transactions/sec')
+				,@Mirroring_Transaction_Delay=(SELECT [cntr_value] FROM [perfmon_results_mirroring] WHERE [counter_name]='Transaction Delay')
+				,@Mirroring_LogSendQueueKB=(SELECT [cntr_value] FROM [sys].[dm_os_performance_counters] WHERE [object_name]='SQLServer:Database Mirroring' AND [instance_name]='_Total' AND [counter_name]='Log Send Queue KB')
+
+		IF OBJECT_ID('tempdb..#perfmon_baseline_mirroring') IS NOT NULL BEGIN DROP TABLE [#perfmon_baseline_mirroring]; END;
+
+		PRINT CONVERT(NVARCHAR(8),@Mirroring_Mirrored_WriteTransactions_sec)+' mirrored transactions, sending '+CONVERT(NVARCHAR(8),( @Mirroring_BytesSent_sec/1024) )+ ' KB and receiving '+CONVERT(NVARCHAR(8),(@Mirroring_BytesReceived_sec/1024) )+' KB per second with '+CONVERT(NVARCHAR(8),@Mirroring_Transaction_Delay)+' ms latency, '+CONVERT(NVARCHAR(8),@Mirroring_LogSendQueueKB)+' KB unsent'
+
 	END;
-	
+
 	-- ### Has there been any page autorepair?
 	IF (CONVERT(INT ,@@microsoftversion)>=171051460) --SQL2008R2SP1 or greater
 	 BEGIN
-		  DECLARE	@mirroring_auto_page_repair INT; SELECT  @mirroring_auto_page_repair=COUNT([file_id]) FROM [sys].[dm_db_mirroring_auto_page_repair];
+		  DECLARE @mirroring_auto_page_repair INT; SELECT @mirroring_auto_page_repair=COUNT([file_id]) FROM [sys].[dm_db_mirroring_auto_page_repair];
 		  IF (@mirroring_auto_page_repair>0)
 		  BEGIN 
 			   PRINT '[!] Mirroring auto page repair has taken place '+CONVERT(NVARCHAR(4) ,@mirroring_auto_page_repair)+' times';
@@ -547,6 +658,9 @@ END;
 		IF @os_performance_counters<>0 BEGIN PRINT 'Replication is enabled with databases published '+CONVERT(NVARCHAR(64),@ReplIsPublished)+', subscribed '+CONVERT(NVARCHAR(64),@ReplIsSubscribed)+', distributor '+CONVERT(NVARCHAR(64),@ReplIsDistributor)+' having '+CONVERT(NVARCHAR(64),@ReplPendingXacts)+' transactions to be published'; END;
 	END;
 
+
+	-- ### Footer print
 	PRINT CHAR(10)+'/* [sp_health_check] by @sqlslancaster - find help at http://sqlhealthcheck.net/how-to */';
 
 GO
+
