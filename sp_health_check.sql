@@ -17,7 +17,7 @@ This script was put together by Salvador Lancaster
 sp_health_check is licensed free as long as all its contents are preserved, including this header. The script and all its contents
 cannot be redistributed or sold either partially or as a whole without the author's expressed written approval. 
 
-Some scripts that are part of this compound of code were not created by the author and belong to their original creator or owner 
+Some scripts that are part of this compound of code were not created by the author and belong to their original creators or owners 
 for all purposes. Other authors' credit is specified within the stored procedure's code. You can find more details on this at 
 https://sqlhealthcheck.net/overview
 
@@ -63,7 +63,7 @@ END;
 --===============================================================================================================================--
 	
 	/*  PENDING ITEMS:
-	    - Measure latency
+	    - Measure IO latency
 	    - Capture waits
 	*/
 
@@ -118,7 +118,7 @@ END;
 
 		DECLARE  @BatchRequests_sec BIGINT,		@Transactions_sec BIGINT	,@WriteTransactions_sec BIGINT,		@Logins_sec BIGINT				,@Logouts_sec BIGINT
 				,@Compilations_sec BIGINT,		@ReCompilations_sec BIGINT	,@QueryOptimizations_sec BIGINT,	@BufferPageWrites_sec BIGINT	,@BufferPageReads_sec BIGINT
-				,@BufferLazyWrites_sec BIGINT,	@CheckpointPages_sec BIGINT	,@PageSplits_sec BIGINT			   ,@MemoryGrants_sec DECIMAL(10,1);
+				,@BufferLazyWrites_sec BIGINT,	@CheckpointPages_sec BIGINT	,@PageSplits_sec BIGINT;
 
 		;WITH [perfmon_results] AS (
 			SELECT * FROM 
@@ -142,7 +142,6 @@ END;
 					)
 			) [perfmon_results_t]
 		)
-
 		SELECT   @BatchRequests_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Batch Requests/sec'),0)
 				,@Transactions_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Transactions/sec'),0)
 				,@WriteTransactions_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Write Transactions/sec'),0)
@@ -255,7 +254,7 @@ END;
 	END;
 	ELSE
 	BEGIN
-		PRINT '[!] The SQLServerAgent service is NOT in running status';
+		PRINT '[!] The SQL Agent service is NOT in running status';
 		--IF (@iscluster=0)
 		--BEGIN
 			--PRINT 'EXEC master.sys.xp_servicecontrol N''querystate'',N''SQLServerAGENT'';  --Query current status'; PRINT 'EXEC master.sys.xp_servicecontrol N''start'',N''SQLServerAGENT''; --Start the service';
@@ -271,6 +270,7 @@ END;
 	PRINT CONVERT(NVARCHAR(32),@traces)+' traces, '+CONVERT(NVARCHAR(32),@server_event_notifications)+' server event notifications, '+CONVERT(NVARCHAR(32),ISNULL(@xe_sessions,0))+' extended events sessions, and '+CONVERT(NVARCHAR(32),@server_triggers)+' server triggers currently running';
 
 	PRINT ''; -- Print break
+
 
 --===============================================================================================================================--
 --======================================================= FILES STATUSES ========================================================--
@@ -307,6 +307,7 @@ END;
 			PRINT '[!] Only '+CONVERT(NVARCHAR(3),@dbmu)+' databases are in multi_user access status out of '+CONVERT(NVARCHAR(5),@dbs)+' attached to the server';
 		END; 
 	END;
+
 	-- ### Check if all data and log files are online
 	IF (@dbf = @dbfo) 
 	BEGIN 
@@ -318,31 +319,26 @@ END;
 	END;
 
 
-
 --===============================================================================================================================--
---======================================================== FILES SIZE ===========================================================--
+--======================================================= FILES' SIZES ==========================================================--
 --===============================================================================================================================--
 
         DECLARE @LogFilesTotalSize INT; SELECT @LogFilesTotalSize=SUM(([size]*8)/1024) FROM [sys].[master_files] WHERE [type_desc]='LOG' GROUP BY [type_desc];
         DECLARE @DataFilesTotalSize INT; SELECT @DataFilesTotalSize=SUM(([size]*8)/1024) FROM [sys].[master_files] WHERE [type_desc]='ROWS' GROUP BY [type_desc];
         PRINT 'The database log files use '+CONVERT(NVARCHAR(32),@LogFilesTotalSize)+' MB, and the data files use '+CONVERT(NVARCHAR(32),@DataFilesTotalSize)+' MB, for a total of '+CONVERT(NVARCHAR(32),@DataFilesTotalSize+@LogFilesTotalSize)+' MB';
 
-
 	PRINT ''; -- Print break
+
 
 --===============================================================================================================================--
 --===================================================== SERVER RESOURCES ========================================================--
 --===============================================================================================================================--
 
-	/*  PENDING ITEMS:
-	    - Add CPU use
-	*/
-
-	-- ### CPU data
+	-- ### Processors' data
 	DECLARE @cpu_name NVARCHAR(56); DECLARE @cpu_info TABLE ([name] NVARCHAR(MAX) NULL); INSERT INTO @cpu_info EXEC [sys].[xp_cmdshell] 'wmic cpu get name'; DELETE @cpu_info WHERE [name] IS NULL OR [name] LIKE '%name%'; SELECT TOP 1 @cpu_name=[name] FROM @cpu_info;
 	IF (CONVERT(INT,@@microsoftversion)>=171051460) --SQL2008R2SP1 or greater
 	BEGIN
-			-- Credit for this block to http://basitaalishan.com/2014/01/22/get-sql-server-physical-cores-physical-and-virtual-cpus-and-processor-type-information-using-t-sql-script/ by Basit Farooq
+			/* Credit for this block to Basit Farooq http://basitaalishan.com/2014/01/22/get-sql-server-physical-cores-physical-and-virtual-cpus-and-processor-type-information-using-t-sql-script */
 			DECLARE @number_of_virtual_cpus NVARCHAR(4), @number_of_cores_per_cpu NVARCHAR(4), @number_of_physical_cpus NVARCHAR(4), @total_number_of_cores NVARCHAR(4), @cpu_category NVARCHAR(12);
 			DECLARE @xp_msver TABLE ([idx] [INT] NULL,[c_name] [NVARCHAR](100) NULL,[int_val] [FLOAT] NULL,[c_val] [NVARCHAR](128) NULL); 
 			INSERT INTO @xp_msver EXEC ('[master]..[xp_msver]'); 
@@ -357,11 +353,17 @@ END;
 			PRINT 'Processor '+REPLACE(REPLACE((REPLACE(REPLACE(REPLACE(@cpu_name,' ','<>'),'><',''),'<>',' ')), CHAR(13), ''), CHAR(10), '')+'with '+@number_of_physical_cpus+' cpus having '+@number_of_cores_per_cpu++' cores each for a total of '+@total_number_of_cores+' cores and '+@number_of_virtual_cpus+' virtual';
 	END;
 	
-	DECLARE @Parallelism_MAXDOP INT, @Parallelism_CostThreshold INT; SELECT @Parallelism_MAXDOP=CONVERT(INT,[value]) FROM [sys].[configurations] WHERE [name]='max degree of parallelism'; SELECT @Parallelism_CostThreshold=CONVERT(INT,[value]) FROM [sys].[configurations] WHERE [name]='cost threshold for parallelism';	
-	PRINT N'Max degree of parallelism set as '+CONVERT(NVARCHAR(8),@Parallelism_MAXDOP)+' with a cost threshold of '+CONVERT(NVARCHAR(8),@Parallelism_CostThreshold);
+	-- ### CPU Use and MAXDOP
+	/* Credit for this block to Benjamin Nevarez http://http://sqlblog.com/blogs/ben_nevarez/archive/2009/07/26/getting-cpu-utilization-data-from-sql-server.aspx */ 
+	DECLARE @CPU_Print NVARCHAR(1024), @CPU_TotalUse INT, @CPU_SQL INT, @CPU_Other INT; SELECT @CPU_TotalUse=(100-[y].[SystemIdle]) ,@CPU_SQL=[y].[SQLProcessUtilization],@CPU_Other=(100-[y].[SystemIdle]-[y].[SQLProcessUtilization]) FROM (SELECT [x].[record].[value]('(./Record/@id)[1]' ,'int') AS [record_id],[x].[record].[value]('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]' ,'int') AS [SystemIdle],[x].[record].[value]('(./Record/SchedulerMonitorEvent/SystemHealth/ProcessUtilization)[1]' ,'int') AS [SQLProcessUtilization],[x].[timestamp] FROM (SELECT TOP 1 [timestamp],CONVERT(XML ,[record]) AS [record] FROM [sys].[dm_os_ring_buffers] WHERE [ring_buffer_type]=N'RING_BUFFER_SCHEDULER_MONITOR' AND [record] LIKE '%<SystemHealth>%' ORDER BY [timestamp] DESC) AS [x]) AS [y];
+	SET @CPU_Print=N'CPU use at '+CONVERT(NVARCHAR(3),@CPU_TotalUse)+N'%, '+CONVERT(NVARCHAR(3),@CPU_SQL)+N'% used by this instance, and '+CONVERT(NVARCHAR(3),@CPU_Other)+N'% by other processes. ';
+
+	DECLARE @Parallelism_MAXDOP INT, @Parallelism_CostThreshold INT; SELECT @Parallelism_MAXDOP=CONVERT(INT,[value]) FROM [sys].[configurations] WHERE [name]='max degree of parallelism'; SELECT @Parallelism_CostThreshold=CONVERT(INT,[value]) FROM [sys].[configurations] WHERE [name]='cost threshold for parallelism';		
+	
+	PRINT ISNULL(@CPU_Print,'')+N'Max degree of parallelism at '+CONVERT(NVARCHAR(8),@Parallelism_MAXDOP)+' with a cost threshold of '+CONVERT(NVARCHAR(8),@Parallelism_CostThreshold);
 
 	-- ### Memory data
-	DECLARE @TotalServerMemory INT; SELECT @TotalServerMemory=[cntr_value]/1024 FROM [sys].[dm_os_performance_counters] WHERE	[object_name] IN ('SQLServer:Memory Manager')	AND [counter_name] IN ('Total Server Memory (KB)');
+	DECLARE @TotalServerMemory INT; SELECT @TotalServerMemory=[cntr_value]/1024 FROM [sys].[dm_os_performance_counters] WHERE	[object_name] IN ('SQLServer:Memory Manager') AND [counter_name] IN ('Total Server Memory (KB)');
 	DECLARE @TargetServerMemory INT; SELECT @TargetServerMemory=[cntr_value]/1024 FROM [sys].[dm_os_performance_counters] WHERE [object_name] IN ('SQLServer:Memory Manager') AND [counter_name] IN ('Target Server Memory (KB)');
 	DECLARE @max_buff_mem SQL_VARIANT; SELECT @max_buff_mem=[value] FROM [sys].[configurations] WHERE [name] LIKE '%max server memory%';
 	DECLARE @os_memory INT;
@@ -388,9 +390,8 @@ END;
 	DECLARE @BufferCHR DECIMAL(10,2); SET @BufferCHR=((SELECT CONVERT(DECIMAL(16,2),[cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name] ='SQLServer:Buffer Manager'	AND [counter_name]='Buffer cache hit ratio') / (SELECT CONVERT(DECIMAL(16,2),[cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name] ='SQLServer:Buffer Manager' AND [counter_name]='Buffer cache hit ratio base'))*100;
 	DECLARE @PLE BIGINT; SELECT @PLE=[cntr_value] FROM [sys].[dm_os_performance_counters] WHERE [object_name] LIKE '%Manager%' AND [counter_name]='Page life expectancy';
 	IF @os_performance_counters<>0 BEGIN PRINT 'Cache hit ratio at '+CONVERT(NVARCHAR(6),@BufferCHR)+'%, page life expectancy at '+CONVERT(NVARCHAR(15),@PLE)+' secs ('+CONVERT(NVARCHAR(15),@PLE/60)+' min)';
-										 PRINT CONVERT(NVARCHAR(16),@BufferPageReads_sec)+' ('+CONVERT(NVARCHAR(8),((@BufferPageReads_sec*8)/1024))+' MB) page reads, '+CONVERT(NVARCHAR(16),@BufferPageWrites_sec)+' ('+CONVERT(NVARCHAR(8),((@BufferPageWrites_sec*8)/1024))+' MB) page writes, '+CONVERT(NVARCHAR(16),@PageSplits_sec)+' ('+CONVERT(NVARCHAR(16),( (@PageSplits_sec*8)/1024) )+' MB) page splits, '+CONVERT(NVARCHAR(16),@CheckpointPages_sec)+' ('+CONVERT(NVARCHAR(16),( (@CheckpointPages_sec*8)/1024) )+' MB) checkpoint pages, and '+CONVERT(NVARCHAR(16),@CheckpointPages_sec)+' lazy writes per second';
+										 PRINT CONVERT(NVARCHAR(16),@BufferPageReads_sec)+' ('+CONVERT(NVARCHAR(8),((@BufferPageReads_sec*8)/1024))+' MB) page reads, '+CONVERT(NVARCHAR(16),@BufferPageWrites_sec)+' ('+CONVERT(NVARCHAR(8),((@BufferPageWrites_sec*8)/1024))+' MB) page writes, '+CONVERT(NVARCHAR(16),@PageSplits_sec)+' ('+CONVERT(NVARCHAR(16),( (@PageSplits_sec*8)/1024) )+' MB) page splits, '+CONVERT(NVARCHAR(16),@CheckpointPages_sec)+' ('+CONVERT(NVARCHAR(16),( (@CheckpointPages_sec*8)/1024) )+' MB) checkpoint pages, and '+CONVERT(NVARCHAR(16),@BufferLazyWrites_sec)+' lazy writes per second';
 								   END;
-
 	PRINT ''; -- Print break
 
 	-- ### Check if perfmon counters are missing
@@ -516,9 +517,8 @@ END;
 		PRINT '[!] '+CONVERT(NVARCHAR(8),@page_verify_option)+' databases are configured with page verification other than CHECKSUM';
 	END;
 
-
 	-- ### Logs with high use
-	DECLARE @LogsHighUse INT; SELECT @LogsHighUse=COUNT([cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [counter_name] ='Percent Log Used' AND [cntr_value]>80;
+	DECLARE @LogsHighUse INT; SELECT @LogsHighUse=COUNT([cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [counter_name] ='Percent Log Used' AND [cntr_value]>80 AND [instance_name]<>'_Total';
 	IF @LogsHighUse>0
 	BEGIN
 		IF @os_performance_counters<>0 BEGIN PRINT '[!] '+CONVERT(NVARCHAR(8),@LogsHighUse)+' transaction logs are currently used above 80% of their total size'; END;
@@ -604,6 +604,7 @@ END;
 		PRINT '[!] '+CONVERT(NVARCHAR(32),@unsent_mail)+' unsent queued database emails have been found within the last 7 days';
 	END;
 
+
 --===============================================================================================================================--
 --===================================================== MIRRORING STATUS ========================================================--
 --===============================================================================================================================--
@@ -619,7 +620,6 @@ END;
 			BEGIN 
 				PRINT '[!] '+CONVERT(NVARCHAR(3),(@mirror_COUNT-@mirrorCOUNTsynch))+' databases configured with mirroring are NOT in sync status';
 			END; 
-
 
 	-- ### Database mirroring performance stats
 		DECLARE  @Mirroring_BytesSent_sec BIGINT ,@Mirroring_BytesReceived_sec BIGINT ,@Mirroring_Mirrored_WriteTransactions_sec BIGINT ,@Mirroring_Transaction_Delay BIGINT ,@Mirroring_LogSendQueueKB BIGINT;
@@ -657,6 +657,7 @@ END;
 		  END;
 	END;
 
+
 --===============================================================================================================================--
 --======================================================= REPLICATION ===========================================================--
 --===============================================================================================================================--
@@ -670,7 +671,6 @@ END;
 
 		IF @os_performance_counters<>0 BEGIN PRINT 'Replication is enabled with databases published '+CONVERT(NVARCHAR(64),@ReplIsPublished)+', subscribed '+CONVERT(NVARCHAR(64),@ReplIsSubscribed)+', distributor '+CONVERT(NVARCHAR(64),@ReplIsDistributor)+' having '+CONVERT(NVARCHAR(64),@ReplPendingXacts)+' transactions to be published'; END;
 	END;
-
 
 	-- ### Footer print
 	PRINT CHAR(10)+'/* [sp_health_check] by @sqlslancaster - find help at http://sqlhealthcheck.net/how-to */';
