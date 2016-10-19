@@ -243,12 +243,14 @@ END;
 					  @value        = @SrvAccAgent OUTPUT;
 	END;
 
+	IF CHARINDEX('@',@SrvAccAgent,0)>0 BEGIN SELECT @SrvAccAgent='%'+LEFT(@SrvAccAgent,CHARINDEX('@',@SrvAccAgent,0)-1); END;
+
 	-- ### Engine service running info
 	PRINT 'The engine has been up since '+CONVERT(NVARCHAR(16),@tempDBcreate,101)+' '+CONVERT(NVARCHAR(16),@tempDBcreate,108)+', '+CONVERT(NVARCHAR(6),@engine_hours)+' hours and '+CONVERT(NVARCHAR(3),@engine_minutes)+' minutes ago as process ID '+CONVERT(NVARCHAR,SERVERPROPERTY('ProcessID'))+' under ['+@SrvAccDBEngine+']';
 
 	-- ### Is the agent service running?
-	DECLARE @SQLAgentStart DATETIME; SELECT @SQLAgentStart=[login_time] FROM [sys].[dm_exec_sessions] WHERE [login_name]=@SrvAccAgent AND [program_name] LIKE 'SQLAgent - Generic Refresher%'; 
-	IF EXISTS (SELECT TOP 1 [login_name] FROM [sys].[dm_exec_sessions] WHERE [login_name]=@SrvAccAgent AND [program_name] LIKE 'SQLAgent%') 
+	DECLARE @SQLAgentStart DATETIME; SELECT @SQLAgentStart=[login_time] FROM [sys].[dm_exec_sessions] WHERE [login_name] LIKE @SrvAccAgent AND [program_name] LIKE 'SQLAgent - Generic Refresher%'; 
+	IF EXISTS (SELECT TOP 1 [login_name] FROM [sys].[dm_exec_sessions] WHERE [login_name] LIKE @SrvAccAgent AND [program_name] LIKE 'SQLAgent%') 
 	BEGIN
 		PRINT 'The agent was last started on '+CONVERT(NVARCHAR(16),@SQLAgentStart,101)+' '+CONVERT(NVARCHAR(16),@SQLAgentStart,108)+', '+CONVERT(NVARCHAR,DATEDIFF(hh,@SQLAgentStart,GETDATE()))+' hours ago, and runs under ['+@SrvAccAgent+']';
 	END;
