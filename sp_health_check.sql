@@ -88,6 +88,7 @@ END;
 							,'Readahead pages/sec'			,'Full Scans/sec'			,'Index Searches/sec'		,'Page lookups/sec'
 							,'Range Scans/sec'				,'Pages compressed/sec'
 							)
+			AND [instance_name]<>'internal'
 		)
 		OR ([counter_name] IN 
 							('Transactions/sec'					,'Write Transactions/sec'			,'Number of Deadlocks/sec'
@@ -133,17 +134,18 @@ END;
 							,'Readahead pages/sec'			,'Full Scans/sec'			,'Index Searches/sec'		,'Page lookups/sec'
 							,'Range Scans/sec'				,'Pages compressed/sec'
 							)
-						)
-						OR ([perfmon_diff].[counter_name] IN 
-							('Transactions/sec'				,'Write Transactions/sec'
-							,'Lock Requests/sec'			,'Log Bytes Flushed/sec'	,'Log Flushes/sec'
-							)
-							AND [perfmon_diff].[instance_name]='_Total'
-					)
+					AND [instance_name]<>'internal'
+				)
+				OR ([perfmon_diff].[counter_name] IN 
+					('Transactions/sec'				,'Write Transactions/sec'
+					,'Lock Requests/sec'			,'Log Bytes Flushed/sec'	,'Log Flushes/sec'
+				)
+					AND [perfmon_diff].[instance_name]='_Total'
+				)
 			) [perfmon_results_t]
 		)
-		SELECT   @BatchRequests_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Batch Requests/sec'),0)
-				,@Transactions_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Transactions/sec'),0)
+		SELECT --  @BatchRequests_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Batch Requests/sec'),0)
+				@Transactions_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Transactions/sec'),0)
 				,@WriteTransactions_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Write Transactions/sec'),0)
 				,@Logins_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Logins/sec'),0)
 				,@Logouts_sec=ISNULL((SELECT [perfmon_results].[cntr_value] FROM [perfmon_results] WHERE [perfmon_results].[counter_name]='Logouts/sec'),0)
@@ -382,18 +384,24 @@ END;
 		IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(20),@os_memory)+' MB of memory with '+CONVERT(NVARCHAR(32),@TotalServerMemory)+' currently assigned for SQL which is targeting '+CONVERT(NVARCHAR(32),@TargetServerMemory)+' and maxed at '+CONVERT(NVARCHAR(20),@max_buff_mem); END;
 	END;
 
+	DECLARE @BufferCHR DECIMAL(10,2); SET @BufferCHR=((SELECT CONVERT(DECIMAL(16,2),[cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name] ='SQLServer:Buffer Manager'	AND [counter_name]='Buffer cache hit ratio') / (SELECT CONVERT(DECIMAL(16,2),[cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name] ='SQLServer:Buffer Manager' AND [counter_name]='Buffer cache hit ratio base'))*100;
+	DECLARE @PLE BIGINT; SELECT @PLE=[cntr_value] FROM [sys].[dm_os_performance_counters] WHERE [object_name] LIKE '%Manager%' AND [counter_name]='Page life expectancy';
+
 	IF (CONVERT(INT,@@microsoftversion)>=171051460) --SQL2008R2SP1 or greater
 	BEGIN
 		DECLARE @MemoryPlanCache INT; SELECT @MemoryPlanCache=[allocations_kb]/1024 FROM [sys].[dm_os_memory_brokers] WHERE [memory_broker_type]='MEMORYBROKER_FOR_CACHE';
 		DECLARE @BufferDBPages INT; SELECT @BufferDBPages= ([cntr_value]*8)/1024 FROM [sys].[dm_os_performance_counters] WHERE [object_name] IN ('SQLServer:Buffer Manager') AND  [counter_name] = 'Database pages';
-		IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(64),@BufferDBPages)+' MB of memory used as buffer for database pages ('+CONVERT(NVARCHAR(16),CONVERT(DECIMAL(4,2),(CONVERT(DECIMAL(16,4),CONVERT(DECIMAL(16,5),@BufferDBPages) / CONVERT(DECIMAL(16,5),@TotalServerMemory)))*100))+'%), '+CONVERT(NVARCHAR(64),@MemoryPlanCache)+' MB for plan cache ('+CONVERT(NVARCHAR(16),CONVERT(DECIMAL(4,2),(CONVERT(DECIMAL(16,4),CONVERT(DECIMAL(16,5),@MemoryPlanCache) / CONVERT(DECIMAL(16,5),@TotalServerMemory)))*100))+'%)'; END;
+		IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(64),@BufferDBPages)+' MB of memory used as buffer for database pages ('+CONVERT(NVARCHAR(16),CONVERT(DECIMAL(4,2),(CONVERT(DECIMAL(16,4),CONVERT(DECIMAL(16,5),@BufferDBPages) / CONVERT(DECIMAL(16,5),@TotalServerMemory)))*100))+'%), Cache hit ratio at '+CONVERT(NVARCHAR(6),@BufferCHR)+'%, page life expectancy at '+CONVERT(NVARCHAR(15),@PLE)+' secs ('+CONVERT(NVARCHAR(15),@PLE/60)+' min)'; ; END;
 	END;
-	
-	DECLARE @BufferCHR DECIMAL(10,2); SET @BufferCHR=((SELECT CONVERT(DECIMAL(16,2),[cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name] ='SQLServer:Buffer Manager'	AND [counter_name]='Buffer cache hit ratio') / (SELECT CONVERT(DECIMAL(16,2),[cntr_value]) FROM [sys].[dm_os_performance_counters] WHERE [object_name] ='SQLServer:Buffer Manager' AND [counter_name]='Buffer cache hit ratio base'))*100;
-	DECLARE @PLE BIGINT; SELECT @PLE=[cntr_value] FROM [sys].[dm_os_performance_counters] WHERE [object_name] LIKE '%Manager%' AND [counter_name]='Page life expectancy';
-	IF @os_performance_counters<>0 BEGIN PRINT 'Cache hit ratio at '+CONVERT(NVARCHAR(6),@BufferCHR)+'%, page life expectancy at '+CONVERT(NVARCHAR(15),@PLE)+' secs ('+CONVERT(NVARCHAR(15),@PLE/60)+' min)';
-										 PRINT CONVERT(NVARCHAR(16),@BufferPageReads_sec)+' ('+CONVERT(NVARCHAR(8),((@BufferPageReads_sec*8)/1024))+' MB) page reads, '+CONVERT(NVARCHAR(16),@BufferPageWrites_sec)+' ('+CONVERT(NVARCHAR(8),((@BufferPageWrites_sec*8)/1024))+' MB) page writes, '+CONVERT(NVARCHAR(16),@PageSplits_sec)+' ('+CONVERT(NVARCHAR(16),( (@PageSplits_sec*8)/1024) )+' MB) page splits, '+CONVERT(NVARCHAR(16),@CheckpointPages_sec)+' ('+CONVERT(NVARCHAR(16),( (@CheckpointPages_sec*8)/1024) )+' MB) checkpoint pages, and '+CONVERT(NVARCHAR(16),@BufferLazyWrites_sec)+' lazy writes per second';
-								   END;
+
+	IF @os_performance_counters<>0 BEGIN PRINT CONVERT(NVARCHAR(16),@BufferPageReads_sec)+' ('+CONVERT(NVARCHAR(8),((@BufferPageReads_sec*8)/1024))+' MB) page reads, '+CONVERT(NVARCHAR(16),@BufferPageWrites_sec)+' ('+CONVERT(NVARCHAR(8),((@BufferPageWrites_sec*8)/1024))+' MB) page writes, '+CONVERT(NVARCHAR(16),@PageSplits_sec)+' ('+CONVERT(NVARCHAR(16),( (@PageSplits_sec*8)/1024) )+' MB) page splits, '+CONVERT(NVARCHAR(16),@CheckpointPages_sec)+' ('+CONVERT(NVARCHAR(16),( (@CheckpointPages_sec*8)/1024) )+' MB) checkpoint pages, and '+CONVERT(NVARCHAR(16),@BufferLazyWrites_sec)+' lazy writes per second'; END;
+
+	-- ### Cached objects
+	DECLARE @exec_plans_total_count BIGINT; SELECT @exec_plans_total_count=COUNT(*) FROM [sys].[dm_exec_cached_plans];
+	DECLARE @exec_plans_total_mb BIGINT; SELECT @exec_plans_total_mb=SUM(CONVERT(BIGINT,[size_in_bytes]))/1024/1024 FROM [sys].[dm_exec_cached_plans]
+	DECLARE @exec_plans_tenorless_mb BIGINT; SELECT @exec_plans_tenorless_mb=SUM(CONVERT(BIGINT,[size_in_bytes]))/1024/1024 FROM [sys].[dm_exec_cached_plans] WHERE [usecounts]<=10;
+	PRINT CONVERT(NVARCHAR(64),@MemoryPlanCache)+' MB used for cached objects ('+CONVERT(NVARCHAR(16),CONVERT(DECIMAL(4,2),(CONVERT(DECIMAL(16,4),CONVERT(DECIMAL(16,5),@MemoryPlanCache) / CONVERT(DECIMAL(16,5),@TotalServerMemory)))*100))+'%), '+CONVERT(NVARCHAR(32),@exec_plans_total_count)+' exec plans stored using '+CONVERT(NVARCHAR(32),@exec_plans_total_mb)+' MB, '+CONVERT(NVARCHAR(32),@exec_plans_tenorless_mb)+' MB ('+CONVERT(NVARCHAR(5),CONVERT(DECIMAL(3,1),CONVERT(DECIMAL(32,2),@exec_plans_tenorless_mb)/CONVERT(DECIMAL(32,2),@exec_plans_total_mb)*100))+'%) for plans used ten times or less'
+
 	PRINT ''; -- Print break
 
 	-- ### Check if perfmon counters are missing
